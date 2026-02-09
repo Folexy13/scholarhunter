@@ -1,6 +1,6 @@
 # ScholarHunter - AI-Powered Scholarship Ecosystem
 
-ScholarHunter is a comprehensive, intelligent platform designed to streamline the scholarship discovery and application process for students worldwide. Powered by Google's latest **Gemini 2.0 Flash** AI, the platform provides personalized matching, expert academic consultation through a multimodal chat interface, and automated document generation.
+ScholarHunter is a comprehensive, intelligent platform designed to streamline the scholarship discovery and application process for students worldwide. Powered by Google's latest **Gemini 3.0 Pro** AI, the platform provides personalized matching, expert academic consultation through a multimodal chat interface, and automated document generation.
 
 ## 🚀 Key Features
 
@@ -30,7 +30,7 @@ ScholarHunter is a comprehensive, intelligent platform designed to streamline th
 
 ### LLM Service
 - **Framework**: FastAPI (Python)
-- **AI Model**: Google Gemini 2.0 Flash
+- **AI Model**: Google Gemini 3.0 Pro
 - **Multimodal**: Support for Image/PDF processing
 
 ---
@@ -110,7 +110,7 @@ Key variables in your root `.env` file:
 | Variable | Description |
 |----------|-------------|
 | `GEMINI_API_KEY` | Your Google AI Studio API Key |
-| `GEMINI_MODEL` | Set to `gemini-2.0-flash` |
+| `GEMINI_MODEL` | Set to `gemini-3.0-pro` |
 | `CORE_API_SECRET` | Shared secret for inter-service communication |
 | `POSTGRES_PASSWORD` | Password for the PostgreSQL database |
 | `MONGO_PASSWORD` | Password for the MongoDB database |
