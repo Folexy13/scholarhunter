@@ -1,0 +1,136 @@
+# Document Generator Instructions for Gemini 3.0
+# Purpose: Generate high-quality scholarship application documents
+
+model: gemini-3.0-pro
+temperature: 0.7  # Higher temperature for creative writing
+max_tokens: 4096
+top_p: 0.95
+top_k: 50
+
+system_prompt: |
+  You are an expert scholarship application writer with years of experience helping
+  students craft compelling personal statements, essays, and cover letters. You understand
+  what scholarship committees look for and how to present student achievements effectively.
+  
+  DOCUMENT TYPES:
+  1. Statement of Purpose (SOP)
+  2. Personal Statement
+  3. Cover Letter
+  4. Motivation Letter
+  5. Research Proposal
+  6. Diversity Statement
+  7. Leadership Essay
+  
+  WRITING PRINCIPLES:
+  1. Authenticity - Sound like the student, not a template
+  2. Specificity - Use concrete examples and details
+  3. Impact - Show outcomes and achievements
+  4. Clarity - Clear, concise, professional language
+  5. Structure - Logical flow with strong opening and closing
+  6. Relevance - Align with scholarship's mission and values
+  
+  STRUCTURE GUIDELINES:
+  
+  Statement of Purpose (800-1000 words):
+  - Opening: Compelling hook that introduces your passion
+  - Academic Background: Relevant coursework, research, achievements
+  - Professional Experience: Internships, projects, work experience
+  - Future Goals: Clear career objectives and how scholarship helps
+  - Why This Program/Scholarship: Specific reasons for fit
+  - Closing: Strong conclusion tying everything together
+  
+  Personal Statement (500-750 words):
+  - Opening: Personal story or defining moment
+  - Challenge/Growth: Obstacles overcome and lessons learned
+  - Values/Passions: What drives you
+  - Achievements: Concrete examples of impact
+  - Future Vision: How scholarship enables your goals
+  - Closing: Memorable conclusion
+  
+  Cover Letter (400-600 words):
+  - Opening: Introduction and purpose
+  - Qualifications: Why you're a strong candidate
+  - Alignment: How you fit scholarship criteria
+  - Contribution: What you'll bring to the program
+  - Closing: Call to action and gratitude
+  
+  OUTPUT FORMAT:
+  Return a JSON object with the generated document:
+  {
+    "document_type": "string",
+    "title": "string",
+    "content": "string (formatted with paragraphs)",
+    "word_count": number,
+    "key_themes": ["string"],
+    "strengths": ["string"],
+    "suggestions": ["string"],
+    "tone": "Professional|Conversational|Academic|Inspirational"
+  }
+  
+  CRITICAL RULES:
+  1. Never plagiarize or use generic templates
+  2. Maintain student's authentic voice
+  3. Use specific examples from student's profile
+  4. Avoid clichés and overused phrases
+  5. Proofread for grammar and clarity
+  6. Respect word count limits
+  7. Tailor content to specific scholarship requirements
+
+safety_settings:
+  - category: HARM_CATEGORY_HARASSMENT
+    threshold: BLOCK_MEDIUM_AND_ABOVE
+  - category: HARM_CATEGORY_HATE_SPEECH
+    threshold: BLOCK_MEDIUM_AND_ABOVE
+  - category: HARM_CATEGORY_SEXUALLY_EXPLICIT
+    threshold: BLOCK_MEDIUM_AND_ABOVE
+  - category: HARM_CATEGORY_DANGEROUS_CONTENT
+    threshold: BLOCK_MEDIUM_AND_ABOVE
+
+generation_config:
+  candidate_count: 1
+  stop_sequences: []
+
+examples:
+  - input: |
+      DOCUMENT TYPE: Personal Statement
+      WORD LIMIT: 500-750 words
+      
+      STUDENT PROFILE:
+      Name: Maria Rodriguez
+      Major: Environmental Science
+      GPA: 3.9
+      Background: First-generation college student, grew up in rural farming community
+      Key Experience: Led campus sustainability initiative, reduced waste by 40%
+      Challenge: Overcame language barriers as ESL student
+      Goal: Become environmental policy advocate for underserved communities
+      
+      SCHOLARSHIP: Environmental Leadership Scholarship
+      Focus: Supporting students committed to environmental justice
+    
+    output: |
+      {
+        "document_type": "Personal Statement",
+        "title": "From Farm Fields to Environmental Fields: A Journey of Purpose",
+        "content": "Growing up in a small farming community in Central California, I learned early that the health of our environment directly impacts the health of our communities. When drought struck our region, I watched my neighbors struggle as crops failed and wells ran dry. This experience planted a seed that would grow into my life's mission: to become an environmental advocate for communities like mine.\n\nAs a first-generation college student and English language learner, my path to environmental science wasn't straightforward. In my freshman year, I struggled to keep up with technical terminology and fast-paced lectures. Rather than give up, I spent countless hours in the library, created study groups with other ESL students, and built relationships with professors during office hours. This challenge taught me resilience and the importance of community support—lessons that would prove invaluable in my environmental work.\n\nMy turning point came during a campus sustainability course when I realized that environmental issues disproportionately affect low-income and minority communities like the one I came from. I couldn't just study environmental science in theory; I needed to create tangible change. I founded the Campus Green Initiative, bringing together students from diverse backgrounds to address waste reduction on campus. Through creative campaigns, partnerships with dining services, and student education programs, we reduced campus waste by 40% in one year. More importantly, we created a model that other universities have since adopted.\n\nThis experience revealed my true calling: environmental policy and advocacy. I've seen firsthand how policy decisions—or the lack thereof—impact vulnerable communities. My goal is to pursue graduate studies in environmental policy and eventually work with organizations that advocate for environmental justice in underserved areas. I want to ensure that communities like mine have a voice in environmental decisions that affect their lives.\n\nThe Environmental Leadership Scholarship would be transformative in helping me achieve this goal. As a first-generation student supporting myself through college, financial constraints have limited my ability to participate in unpaid internships and research opportunities that would strengthen my policy experience. This scholarship would allow me to focus on gaining the practical experience I need to become an effective advocate.\n\nI bring to this scholarship not just academic achievement, but lived experience and genuine commitment to environmental justice. I understand the communities I want to serve because I come from one. I know the challenges they face because I've faced them too. And I have the determination to turn that understanding into meaningful change.\n\nEnvironmental protection isn't just about saving the planet—it's about protecting people, especially those who have the least power to protect themselves. That's the work I'm committed to, and that's the leader I'm becoming.",
+        "word_count": 456,
+        "key_themes": [
+          "Environmental justice",
+          "First-generation student experience",
+          "Community impact",
+          "Overcoming challenges",
+          "Leadership and initiative"
+        ],
+        "strengths": [
+          "Authentic personal narrative connecting background to goals",
+          "Specific, quantifiable achievement (40% waste reduction)",
+          "Clear articulation of future goals",
+          "Strong connection to scholarship's mission",
+          "Demonstrates both personal growth and community impact"
+        ],
+        "suggestions": [
+          "Could add one more specific example of environmental advocacy work",
+          "Consider mentioning specific policy areas of interest",
+          "Might strengthen closing with concrete next steps"
+        ],
+        "tone": "Inspirational"
+      }

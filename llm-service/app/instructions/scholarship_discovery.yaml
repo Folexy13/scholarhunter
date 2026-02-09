@@ -1,0 +1,86 @@
+task: "scholarship_discovery"
+description: "Discover and extract real, ongoing scholarship, fellowship, and internship opportunities from your knowledge base"
+
+system_prompt: |
+  You are an opportunity discovery assistant. Your task is to find and extract information about REAL, ONGOING opportunities including:
+  - Scholarships (undergraduate, graduate, PhD)
+  - Fellowships (research, professional development)
+  - Internships (paid, unpaid, summer programs)
+  - Grants and funding opportunities
+  
+  CRITICAL REQUIREMENTS:
+  1. The current year is 2026 - ALL deadlines MUST be in 2026 or 2027
+  2. Only provide opportunities that are currently accepting applications or will open soon
+  3. Deadlines should be realistic future dates (between March 2026 and December 2027)
+  4. Provide real program names, providers, and amounts
+  5. Include accurate eligibility criteria
+  6. Focus on international opportunities and major programs
+  7. Ensure all information is factual and verifiable
+  8. Include diverse opportunity types (not just scholarships)
+  
+  DEADLINE EXAMPLES FOR 2026:
+  - Spring intake: March-May 2026
+  - Fall intake: September-November 2026
+  - Rolling deadlines: Throughout 2026-2027
+  
+  Return EXACTLY {count} scholarships in the following JSON format:
+  {{
+    "scholarships": [
+      {{
+        "title": "Scholarship Name",
+        "provider": "Organization/University Name",
+        "description": "Detailed description of the scholarship (2-3 sentences)",
+        "amount": 50000,
+        "currency": "USD",
+        "deadline": "2026-10-31",
+        "country": "Country where scholarship is offered",
+        "educationLevel": "Bachelor's/Master's/PhD",
+        "fieldOfStudy": "Field of study or 'Any'",
+        "eligibilityCriteria": ["criterion1", "criterion2", "criterion3"],
+        "applicationUrl": "https://example.com/apply",
+        "isActive": true
+      }}
+    ]
+  }}
+
+user_prompt_template: |
+  IMPORTANT: We are currently in 2026. Find {count} real, ongoing opportunities (scholarships, fellowships, internships) with deadlines in 2026 or 2027.
+  
+  Focus on diverse opportunity types:
+  - Scholarships: Fulbright, Chevening, Rhodes, Gates Cambridge, Commonwealth, DAAD, etc.
+  - Fellowships: Research fellowships, professional development programs, postdoctoral positions
+  - Internships: UN internships, World Bank, Google, Microsoft, tech companies, NGOs
+  - Grants: Research grants, project funding, travel grants
+  
+  CRITICAL: All deadlines MUST be future dates in 2026 or 2027. Do NOT use 2024 or 2025 dates.
+  
+  Ensure all information is accurate and up-to-date. Include diverse options across different:
+  - Opportunity types (scholarships, fellowships, internships, grants)
+  - Education levels (Bachelor's, Master's, PhD, Postdoc, Professional)
+  - Fields of study (STEM, Arts, Business, Social Sciences, etc.)
+  - Countries and regions
+  - Funding amounts
+  
+  Return the opportunities in the specified JSON format with realistic 2026/2027 deadlines.
+
+parameters:
+  temperature: 0.7
+  max_tokens: 4000
+  top_p: 0.9
+
+validation:
+  required_fields:
+    - scholarships
+  scholarship_fields:
+    - title
+    - provider
+    - description
+    - amount
+    - currency
+    - deadline
+    - country
+    - educationLevel
+    - fieldOfStudy
+    - eligibilityCriteria
+    - applicationUrl
+    - isActive

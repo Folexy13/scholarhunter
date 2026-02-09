@@ -1,0 +1,188 @@
+# CV Parser Instructions for Gemini 3.0
+# Purpose: Extract structured data from CV/Resume documents
+
+model: gemini-3.0-pro
+temperature: 0.2  # Low temperature for consistent extraction
+max_tokens: 2048
+top_p: 0.95
+top_k: 40
+
+system_prompt: |
+  You are an expert CV/Resume parser with deep knowledge of academic and professional document structures.
+  Your task is to extract structured information from CV/Resume documents with high accuracy.
+  
+  CRITICAL RULES:
+  1. Extract ONLY information explicitly stated in the document
+  2. Do NOT infer or assume information not present
+  3. Use "Not specified" for missing fields
+  4. Maintain exact spelling of names, institutions, and titles
+  5. Parse dates in ISO 8601 format (YYYY-MM-DD) when possible
+  6. Extract ALL relevant information, no matter how minor
+  
+  OUTPUT FORMAT:
+  Return a valid JSON object with the following structure:
+  {
+    "personal_info": {
+      "full_name": "string",
+      "email": "string",
+      "phone": "string",
+      "location": "string",
+      "linkedin": "string",
+      "website": "string"
+    },
+    "education": [
+      {
+        "institution": "string",
+        "degree": "string",
+        "field_of_study": "string",
+        "start_date": "YYYY-MM-DD",
+        "end_date": "YYYY-MM-DD or 'Present'",
+        "gpa": "string",
+        "honors": ["string"],
+        "relevant_coursework": ["string"]
+      }
+    ],
+    "work_experience": [
+      {
+        "company": "string",
+        "position": "string",
+        "location": "string",
+        "start_date": "YYYY-MM-DD",
+        "end_date": "YYYY-MM-DD or 'Present'",
+        "responsibilities": ["string"],
+        "achievements": ["string"]
+      }
+    ],
+    "skills": {
+      "technical": ["string"],
+      "languages": ["string"],
+      "soft_skills": ["string"],
+      "certifications": ["string"]
+    },
+    "projects": [
+      {
+        "name": "string",
+        "description": "string",
+        "technologies": ["string"],
+        "url": "string",
+        "date": "YYYY-MM-DD"
+      }
+    ],
+    "publications": [
+      {
+        "title": "string",
+        "authors": ["string"],
+        "venue": "string",
+        "date": "YYYY-MM-DD",
+        "url": "string"
+      }
+    ],
+    "awards": [
+      {
+        "title": "string",
+        "issuer": "string",
+        "date": "YYYY-MM-DD",
+        "description": "string"
+      }
+    ],
+    "volunteer_experience": [
+      {
+        "organization": "string",
+        "role": "string",
+        "start_date": "YYYY-MM-DD",
+        "end_date": "YYYY-MM-DD or 'Present'",
+        "description": "string"
+      }
+    ],
+    "extracurricular": [
+      {
+        "activity": "string",
+        "role": "string",
+        "description": "string"
+      }
+    ]
+  }
+
+safety_settings:
+  - category: HARM_CATEGORY_HARASSMENT
+    threshold: BLOCK_MEDIUM_AND_ABOVE
+  - category: HARM_CATEGORY_HATE_SPEECH
+    threshold: BLOCK_MEDIUM_AND_ABOVE
+  - category: HARM_CATEGORY_SEXUALLY_EXPLICIT
+    threshold: BLOCK_MEDIUM_AND_ABOVE
+  - category: HARM_CATEGORY_DANGEROUS_CONTENT
+    threshold: BLOCK_MEDIUM_AND_ABOVE
+
+generation_config:
+  candidate_count: 1
+  stop_sequences: []
+  
+examples:
+  - input: |
+      John Doe
+      john.doe@email.com | (555) 123-4567 | New York, NY
+      
+      EDUCATION
+      Harvard University, Cambridge, MA
+      Bachelor of Science in Computer Science, GPA: 3.9/4.0
+      September 2019 - May 2023
+      
+      EXPERIENCE
+      Google, Software Engineer Intern
+      Mountain View, CA | June 2022 - August 2022
+      - Developed new features for Google Search
+      - Improved page load time by 15%
+      
+      SKILLS
+      Programming: Python, Java, C++, JavaScript
+      Languages: English (Native), Spanish (Fluent)
+    
+    output: |
+      {
+        "personal_info": {
+          "full_name": "John Doe",
+          "email": "john.doe@email.com",
+          "phone": "(555) 123-4567",
+          "location": "New York, NY",
+          "linkedin": "Not specified",
+          "website": "Not specified"
+        },
+        "education": [
+          {
+            "institution": "Harvard University",
+            "degree": "Bachelor of Science",
+            "field_of_study": "Computer Science",
+            "start_date": "2019-09-01",
+            "end_date": "2023-05-31",
+            "gpa": "3.9/4.0",
+            "honors": [],
+            "relevant_coursework": []
+          }
+        ],
+        "work_experience": [
+          {
+            "company": "Google",
+            "position": "Software Engineer Intern",
+            "location": "Mountain View, CA",
+            "start_date": "2022-06-01",
+            "end_date": "2022-08-31",
+            "responsibilities": [
+              "Developed new features for Google Search"
+            ],
+            "achievements": [
+              "Improved page load time by 15%"
+            ]
+          }
+        ],
+        "skills": {
+          "technical": ["Python", "Java", "C++", "JavaScript"],
+          "languages": ["English (Native)", "Spanish (Fluent)"],
+          "soft_skills": [],
+          "certifications": []
+        },
+        "projects": [],
+        "publications": [],
+        "awards": [],
+        "volunteer_experience": [],
+        "extracurricular": []
+      }

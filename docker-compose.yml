@@ -1,0 +1,162 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: scholarhunter-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-scholarhunter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scholarhunter_password}
+      POSTGRES_DB: ${POSTGRES_DB:-scholarhunter}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scholarhunter}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scholarhunter-network
+
+  # MongoDB Database
+  mongo:
+    image: mongo:7
+    container_name: scholarhunter-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-scholarhunter}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-scholarhunter_password}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scholarhunter-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: scholarhunter-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-scholarhunter_password}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scholarhunter-network
+
+  # LLM Service (Python/FastAPI)
+  llm-service:
+    build:
+      context: ./llm-service
+      dockerfile: Dockerfile
+    container_name: scholarhunter-llm
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      SERVICE_PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.0-pro}
+      CORE_API_URL: http://core-api:3000
+      CORE_API_SECRET: ${CORE_API_SECRET}
+      ALLOWED_HOSTS: localhost,127.0.0.1,core-api,llm-service
+      CORS_ORIGINS: http://localhost:3000,http://core-api:3000
+    ports:
+      - "${LLM_SERVICE_PORT:-8000}:8000"
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - scholarhunter-network
+    restart: unless-stopped
+
+  # Core API (NestJS)
+  core-api:
+    build:
+      context: ./core-api
+      dockerfile: Dockerfile
+    container_name: scholarhunter-core-api
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-scholarhunter}:${POSTGRES_PASSWORD:-scholarhunter_password}@postgres:5432/${POSTGRES_DB:-scholarhunter}
+      MONGODB_URI: mongodb://${MONGO_USER:-scholarhunter}:${MONGO_PASSWORD:-scholarhunter_password}@mongo:27017/scholarhunter?authSource=admin
+      REDIS_URL: redis://:${REDIS_PASSWORD:-scholarhunter_password}@redis:6379
+      JWT_SECRET: ${CORE_API_SECRET}
+      JWT_REFRESH_SECRET: ${CORE_API_SECRET}
+      CORE_API_SECRET: ${CORE_API_SECRET}
+      LLM_SERVICE_URL: http://llm-service:8000
+      LLM_SERVICE_SECRET: ${CORE_API_SECRET}
+      FRONTEND_URL: http://frontend:3001
+    ports:
+      - "${CORE_API_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - scholarhunter-network
+    restart: unless-stopped
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: scholarhunter-frontend
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+    ports:
+      - "${FRONTEND_PORT:-3001}:3000"
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - scholarhunter-network
+    restart: unless-stopped
+
+networks:
+  scholarhunter-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  mongo_data:
+    driver: local
+  redis_data:
+    driver: local
