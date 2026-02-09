@@ -1,17 +1,17 @@
 # FastAPI and Server
-fastapi==0.109.2
-uvicorn[standard]==0.27.1
+fastapi==0.115.8
+uvicorn[standard]==0.34.0
 python-multipart==0.0.9
 
 # Google Gemini AI
-google-generativeai==0.3.2
+google-generativeai==0.8.4
 
 # Data Validation
-pydantic==2.6.1
-pydantic-settings==2.1.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
 
 # YAML Processing
-PyYAML==6.0.1
+PyYAML==6.0.2
 
 # Security - OWASP Best Practices
 python-jose[cryptography]==3.3.0
@@ -22,18 +22,17 @@ python-dotenv==1.0.1
 slowapi==0.1.9
 
 # HTTP Client
-httpx==0.26.0
+httpx==0.28.1
 
 # Logging and Monitoring
 python-json-logger==2.0.7
 
 # Testing
-pytest==7.4.4
-pytest-asyncio==0.23.4
-pytest-cov==4.1.0
-httpx==0.26.0
+pytest==8.3.4
+pytest-asyncio==0.25.3
+pytest-cov==6.0.0
 
 # Code Quality
-black==24.1.1
-flake8==7.0.0
-mypy==1.8.0
+black==25.1.0
+flake8==7.1.1
+mypy==1.15.0
