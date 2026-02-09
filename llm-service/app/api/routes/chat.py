@@ -46,7 +46,8 @@ async def chat(
         # Get chat response
         chat_response = await gemini_service.chat(
             message=chat_request.message,
-            conversation_history=chat_request.conversation_history
+            conversation_history=chat_request.conversation_history,
+            attachments=chat_request.attachments
         )
         
         logger.info("Chat response generated successfully")
@@ -92,7 +93,8 @@ async def chat_stream(
             # Stream chat response
             async for chunk in gemini_service.chat_stream(
                 message=chat_request.message,
-                conversation_history=chat_request.conversation_history
+                conversation_history=chat_request.conversation_history,
+                attachments=chat_request.attachments
             ):
                 yield f"data: {json.dumps({'content': chunk})}\n\n"
             

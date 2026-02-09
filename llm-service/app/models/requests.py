@@ -61,6 +61,7 @@ class ChatRequest(BaseModel):
     """Request model for chat"""
     message: str = Field(..., min_length=1, max_length=2000, description="User message")
     conversation_history: Optional[List[Dict[str, str]]] = Field(default=None, description="Previous conversation")
+    attachments: Optional[List[Dict[str, Any]]] = Field(default=None, description="File attachments (base64 and mime_type)")
     
     @validator("message")
     def validate_message(cls, v):

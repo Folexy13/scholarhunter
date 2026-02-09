@@ -201,7 +201,8 @@ Generate a compelling {document_type} and return as JSON:
     async def chat(
         self,
         message: str,
-        conversation_history: Optional[list[Dict[str, str]]] = None
+        conversation_history: Optional[list[Dict[str, str]]] = None,
+        attachments: Optional[list[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Chat with AI assistant
@@ -209,6 +210,7 @@ Generate a compelling {document_type} and return as JSON:
         Args:
             message: User's message
             conversation_history: Previous conversation messages
+            attachments: Optional list of base64 encoded files with mime_type
             
         Returns:
             AI response with suggestions and resources
@@ -225,27 +227,35 @@ Generate a compelling {document_type} and return as JSON:
             # Build conversation context
             history_text = ""
             if conversation_history:
-                for msg in conversation_history[-5:]:  # Last 5 messages
+                for msg in conversation_history[-10:]:  # More context
                     role = msg.get("role", "user")
                     content = msg.get("content", "")
                     history_text += f"{role.upper()}: {content}\n\n"
             
-            # Build prompt
-            prompt = f"""{instructions['system_prompt']}
+            # Build prompt parts
+            prompt_parts = []
+            
+            # System prompt and history
+            prompt_parts.append(f"{instructions['system_prompt']}\n\nCONVERSATION HISTORY:\n{history_text}\n\nSTUDENT: {message}\n\nProvide a helpful response as JSON:")
 
-CONVERSATION HISTORY:
-{history_text}
-
-STUDENT: {message}
-
-Provide a helpful response as JSON:
-"""
+            # Add attachments if any
+            if attachments:
+                import base64
+                for att in attachments:
+                    try:
+                        data = base64.b64decode(att["base64"])
+                        prompt_parts.append({
+                            "mime_type": att["mime_type"],
+                            "data": data
+                        })
+                    except Exception as e:
+                        logger.error(f"Error decoding attachment: {e}")
             
             # Generate response
             response = await self._generate_content(
-                prompt=prompt,
+                prompt=prompt_parts,
                 temperature=instructions.get("temperature", 0.6),
-                max_tokens=instructions.get("max_tokens", 2048),
+                max_tokens=instructions.get("max_tokens", 4096),
             )
             
             # Parse JSON response
@@ -261,7 +271,8 @@ Provide a helpful response as JSON:
     async def chat_stream(
         self,
         message: str,
-        conversation_history: Optional[list[Dict[str, str]]] = None
+        conversation_history: Optional[list[Dict[str, str]]] = None,
+        attachments: Optional[list[Dict[str, Any]]] = None
     ):
         """
         Stream chat response from AI assistant
@@ -269,6 +280,7 @@ Provide a helpful response as JSON:
         Args:
             message: User's message
             conversation_history: Previous conversation messages
+            attachments: Optional list of base64 encoded files with mime_type
             
         Yields:
             Chunks of the AI response
@@ -285,31 +297,40 @@ Provide a helpful response as JSON:
             # Build conversation context
             history_text = ""
             if conversation_history:
-                for msg in conversation_history[-5:]:  # Last 5 messages
+                for msg in conversation_history[-10:]:  # More context
                     role = msg.get("role", "user")
                     content = msg.get("content", "")
                     history_text += f"{role.upper()}: {content}\n\n"
             
-            # Build prompt - use the system prompt from YAML
-            prompt = f"""{instructions['system_prompt']}
+            # Build prompt parts
+            prompt_parts = []
+            
+            # System prompt and history
+            prompt_parts.append(f"{instructions['system_prompt']}\n\nCONVERSATION HISTORY:\n{history_text}\n\nSTUDENT: {message}\n\nProvide a helpful response as JSON:")
 
-CONVERSATION HISTORY:
-{history_text}
-
-STUDENT: {message}
-
-Provide a helpful response as JSON:"""
+            # Add attachments if any
+            if attachments:
+                import base64
+                for att in attachments:
+                    try:
+                        data = base64.b64decode(att["base64"])
+                        prompt_parts.append({
+                            "mime_type": att["mime_type"],
+                            "data": data
+                        })
+                    except Exception as e:
+                        logger.error(f"Error decoding attachment: {e}")
             
             # Configure generation
             generation_config = genai.types.GenerationConfig(
                 temperature=instructions.get("temperature", 0.6),
-                max_output_tokens=instructions.get("max_tokens", 2048),
+                max_output_tokens=instructions.get("max_tokens", 4096),
                 candidate_count=1,
             )
             
             # Generate streaming response
             response = self.model.generate_content(
-                prompt,
+                prompt_parts,
                 generation_config=generation_config,
                 stream=True,
             )
