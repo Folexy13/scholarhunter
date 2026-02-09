@@ -1,0 +1,234 @@
+import { PrismaService } from '../prisma/prisma.service';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { CreateUserProfileDto } from './dto/create-user-profile.dto';
+export declare class UsersService {
+    private prisma;
+    constructor(prisma: PrismaService);
+    findAll(): Promise<{
+        email: string;
+        firstName: string | null;
+        lastName: string | null;
+        role: import("@prisma/client").$Enums.UserRole;
+        id: string;
+        isActive: boolean;
+        createdAt: Date;
+        updatedAt: Date;
+    }[]>;
+    findOne(id: string): Promise<{
+        email: string;
+        firstName: string | null;
+        lastName: string | null;
+        role: import("@prisma/client").$Enums.UserRole;
+        id: string;
+        isActive: boolean;
+        createdAt: Date;
+        updatedAt: Date;
+        profile: ({
+            education: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                gpa: number | null;
+                profileId: string;
+                institution: string;
+                degree: string;
+                fieldOfStudy: string | null;
+                startDate: Date;
+                endDate: Date | null;
+                honors: string[];
+                relevantCourses: string[];
+            }[];
+            workExperience: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                location: string | null;
+                profileId: string;
+                startDate: Date;
+                endDate: Date | null;
+                company: string;
+                position: string;
+                responsibilities: string[];
+                achievements: string[];
+            }[];
+            skills: {
+                id: string;
+                createdAt: Date;
+                name: string;
+                profileId: string;
+                category: import("@prisma/client").$Enums.SkillCategory;
+                level: import("@prisma/client").$Enums.SkillLevel | null;
+            }[];
+            projects: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                name: string;
+                profileId: string;
+                description: string;
+                technologies: string[];
+                url: string | null;
+                date: Date | null;
+            }[];
+            awards: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                issuer: string;
+                profileId: string;
+                description: string | null;
+                date: Date;
+                title: string;
+            }[];
+        } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            phone: string | null;
+            location: string | null;
+            citizenship: string | null;
+            dateOfBirth: Date | null;
+            gender: string | null;
+            ethnicity: string | null;
+            gpa: string | null;
+            major: string | null;
+            university: string | null;
+            graduationYear: number | null;
+            linkedIn: string | null;
+            website: string | null;
+            bio: string | null;
+            cvData: import("@prisma/client/runtime/library").JsonValue | null;
+            userId: string;
+        }) | null;
+    }>;
+    update(id: string, updateUserDto: UpdateUserDto): Promise<{
+        email: string;
+        firstName: string | null;
+        lastName: string | null;
+        role: import("@prisma/client").$Enums.UserRole;
+        id: string;
+        isActive: boolean;
+        createdAt: Date;
+        updatedAt: Date;
+    }>;
+    remove(id: string): Promise<{
+        message: string;
+    }>;
+    createProfile(userId: string, createProfileDto: CreateUserProfileDto): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        phone: string | null;
+        location: string | null;
+        citizenship: string | null;
+        dateOfBirth: Date | null;
+        gender: string | null;
+        ethnicity: string | null;
+        gpa: string | null;
+        major: string | null;
+        university: string | null;
+        graduationYear: number | null;
+        linkedIn: string | null;
+        website: string | null;
+        bio: string | null;
+        cvData: import("@prisma/client/runtime/library").JsonValue | null;
+        userId: string;
+    }>;
+    updateProfile(userId: string, updateProfileDto: CreateUserProfileDto): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        phone: string | null;
+        location: string | null;
+        citizenship: string | null;
+        dateOfBirth: Date | null;
+        gender: string | null;
+        ethnicity: string | null;
+        gpa: string | null;
+        major: string | null;
+        university: string | null;
+        graduationYear: number | null;
+        linkedIn: string | null;
+        website: string | null;
+        bio: string | null;
+        cvData: import("@prisma/client/runtime/library").JsonValue | null;
+        userId: string;
+    }>;
+    getProfile(userId: string): Promise<{
+        education: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            gpa: number | null;
+            profileId: string;
+            institution: string;
+            degree: string;
+            fieldOfStudy: string | null;
+            startDate: Date;
+            endDate: Date | null;
+            honors: string[];
+            relevantCourses: string[];
+        }[];
+        workExperience: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            location: string | null;
+            profileId: string;
+            startDate: Date;
+            endDate: Date | null;
+            company: string;
+            position: string;
+            responsibilities: string[];
+            achievements: string[];
+        }[];
+        skills: {
+            id: string;
+            createdAt: Date;
+            name: string;
+            profileId: string;
+            category: import("@prisma/client").$Enums.SkillCategory;
+            level: import("@prisma/client").$Enums.SkillLevel | null;
+        }[];
+        projects: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            name: string;
+            profileId: string;
+            description: string;
+            technologies: string[];
+            url: string | null;
+            date: Date | null;
+        }[];
+        awards: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            issuer: string;
+            profileId: string;
+            description: string | null;
+            date: Date;
+            title: string;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        phone: string | null;
+        location: string | null;
+        citizenship: string | null;
+        dateOfBirth: Date | null;
+        gender: string | null;
+        ethnicity: string | null;
+        gpa: string | null;
+        major: string | null;
+        university: string | null;
+        graduationYear: number | null;
+        linkedIn: string | null;
+        website: string | null;
+        bio: string | null;
+        cvData: import("@prisma/client/runtime/library").JsonValue | null;
+        userId: string;
+    }>;
+}
