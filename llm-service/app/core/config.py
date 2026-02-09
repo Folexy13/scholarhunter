@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     
     # Environment
     ENVIRONMENT: str = Field(default="development", env="ENVIRONMENT")
-    SERVICE_PORT: int = Field(default=8000, env="SERVICE_PORT")
+    SERVICE_PORT: int = Field(default=10000, env="PORT")
     LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
     
     # Gemini AI Configuration

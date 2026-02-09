@@ -356,11 +356,13 @@ export class LLMService {
     data: Record<string, unknown>,
   ): Promise<T> {
     try {
+      console.log(`Calling LLM service at ${this.llmServiceUrl}${endpoint}`);
       const response = await axios.post<T>(
         `${this.llmServiceUrl}${endpoint}`,
         data,
         {
           headers: this.getHeaders(),
+          timeout: 60000, // 60 seconds timeout
         },
       );
       return response.data;
