@@ -69,24 +69,6 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-# Security Middleware
-# OWASP: Security Misconfiguration
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=settings.allowed_hosts_list,
-)
-
-# OWASP: Cross-Site Scripting (XSS) & CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-    max_age=3600,
-)
-
-
 # Security Headers Middleware
 # OWASP: Security Misconfiguration
 @app.middleware("http")

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
         env="ALLOWED_HOSTS"
     )
     CORS_ORIGINS: str = Field(
-        default="http://localhost:3000,http://core-api:3000",
+        default="*",
         env="CORS_ORIGINS"
     )
     
