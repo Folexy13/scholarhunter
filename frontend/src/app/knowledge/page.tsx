@@ -9,6 +9,7 @@ import { Send, Sparkles, User, Trash2, History, MessageCircle, Brain, Plus, Pape
 import { useWebSocket } from "@/contexts/websocket-context";
 import { MainLayout } from "@/components/layout/main-layout";
 import apiClient from "@/lib/api-client";
+import { aiApi } from "@/lib/api";
 import { toast } from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -47,7 +48,8 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 function parseAIResponse(content: string): { 
   message: string; 
   suggestions: string[]; 
-  followUpQuestions: string[] 
+  followUpQuestions: string[];
+  action?: { type: string; document_type: string };
 } {
   try {
     // Clean content - sometimes LLM wraps JSON in markdown blocks
@@ -65,6 +67,7 @@ function parseAIResponse(content: string): {
       suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
       followUpQuestions: Array.isArray(parsed.follow_up_questions) ? parsed.follow_up_questions : 
                         (Array.isArray(parsed.followUpQuestions) ? parsed.followUpQuestions : []),
+      action: parsed.action
     };
   } catch {
     // Not JSON, return as-is
@@ -81,6 +84,7 @@ function getMessageDisplay(msg: Message): {
   content: string; 
   suggestions: string[]; 
   followUpQuestions: string[];
+  action?: { type: string; document_type: string };
 } {
   // If it's streaming and starts with {, it's likely JSON we shouldn't show raw
   const isLikelyJson = msg.content.trim().startsWith('{') || msg.content.trim().startsWith('```json');
@@ -108,6 +112,7 @@ function getMessageDisplay(msg: Message): {
     content: parsed.message,
     suggestions: parsed.suggestions,
     followUpQuestions: parsed.followUpQuestions,
+    action: parsed.action
   };
 }
 
@@ -297,6 +302,22 @@ export default function KnowledgePage() {
       off('chat:error', handleChatError);
     };
   }, [currentSessionId, on, off, updateCurrentSession]);
+
+  const handleExecuteAction = async (action: { type: string; document_type: string }) => {
+    if (action.type === 'GENERATE_DOC') {
+      try {
+        toast.loading(`ScholarBot is starting to draft your ${action.document_type}...`);
+        await aiApi.generateDocument({
+          documentType: action.document_type,
+          data: {
+            context: "Generated from chat conversation"
+          }
+        });
+      } catch (e) {
+        toast.error("Failed to start generation");
+      }
+    }
+  };
 
   const handleSendMessage = async (customMessage?: string) => {
     const textToSend = customMessage || message;
@@ -542,8 +563,28 @@ export default function KnowledgePage() {
                         <span className="text-[10px] text-muted-foreground mt-2 px-1 uppercase font-bold tracking-widest opacity-60">{msg.timestamp}</span>
 
                         {/* Suggestions and Follow-up Questions */}
-                        {msg.type === 'agent' && !msg.isStreaming && display && display.followUpQuestions && display.followUpQuestions.length > 0 && (
+                        {msg.type === 'agent' && !msg.isStreaming && display && (
                           <div className="mt-6 w-full flex flex-col gap-2 animate-in slide-in-from-bottom-2 duration-300">
+                             {/* Action Card if AI triggers a generation */}
+                             {display.action && (
+                               <div className="mb-4 p-4 bg-primary/10 border border-primary/20 rounded-2xl flex items-center justify-between shadow-sm">
+                                 <div className="flex items-center gap-3">
+                                   <Sparkles className="h-5 w-5 text-primary animate-pulse" />
+                                   <div>
+                                     <p className="text-[10px] font-bold text-primary uppercase tracking-widest">AI Action Ready</p>
+                                     <p className="text-sm font-semibold">{display.action.type === 'GENERATE_DOC' ? `Draft ${display.action.document_type}` : 'Start Task'}</p>
+                                   </div>
+                                 </div>
+                                 <Button 
+                                   size="sm" 
+                                   onClick={() => handleExecuteAction(display.action!)}
+                                   className="rounded-xl shadow-lg"
+                                 >
+                                   Generate Now
+                                 </Button>
+                               </div>
+                             )}
+
                              <div className="flex items-center gap-2 mb-1">
                                 <div className="h-px flex-1 bg-muted" />
                                 <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Follow-up Questions</span>

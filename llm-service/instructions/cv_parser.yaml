@@ -1,7 +1,7 @@
 # CV Parser Instructions for Gemini 3.0
 # Purpose: Extract structured data from CV/Resume documents
 
-model: gemini-3.0-pro
+model: gemini-3-flash-preview
 temperature: 0.2  # Low temperature for consistent extraction
 max_tokens: 2048
 top_p: 0.95

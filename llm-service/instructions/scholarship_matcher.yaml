@@ -1,7 +1,7 @@
 # Scholarship Matcher Instructions for Gemini 3.0
 # Purpose: Match students with relevant scholarships based on their profile
 
-model: gemini-3.0-pro
+model: gemini-3-flash-preview
 temperature: 0.4  # Moderate temperature for balanced matching
 max_tokens: 3072
 top_p: 0.9

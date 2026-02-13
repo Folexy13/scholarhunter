@@ -1,7 +1,7 @@
 # Interview Prep Instructions for Gemini 3.0
 # Purpose: Conduct mock interviews and provide feedback for scholarship interviews
 
-model: gemini-3.0-pro
+model: gemini-3-flash-preview
 temperature: 0.5  # Moderate temperature for realistic interview simulation
 max_tokens: 2048
 top_p: 0.9

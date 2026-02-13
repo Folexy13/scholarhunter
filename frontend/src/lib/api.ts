@@ -278,43 +278,30 @@ export const documentsApi = {
 };
 
 // AI/LLM Features API (proxied through Core API)
-// The Core API handles all communication with the LLM service
 export const aiApi = {
-  chat: async (data: ChatRequest): Promise<ChatResponse> => {
-    const response = await apiClient.post('/ai/chat', data);
+  chat: async (data: { message: string; context?: Record<string, unknown> }): Promise<{ sessionId: string; message: string }> => {
+    const response = await apiClient.post('/llm/chat', data);
     return response.data;
   },
 
-  parseCV: async (file: File): Promise<Record<string, unknown>> => {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await apiClient.post('/ai/cv-parser/parse', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+  parseCV: async (data: { cvContent: string }): Promise<{ sessionId: string; message: string }> => {
+    const response = await apiClient.post('/llm/cv-parse', data);
     return response.data;
   },
 
   generateDocument: async (data: {
-    type: 'cover_letter' | 'essay' | 'statement';
-    context: Record<string, unknown>;
-  }): Promise<{ content: string }> => {
-    const response = await apiClient.post('/ai/document-generator/generate', data);
+    documentType: string;
+    data: Record<string, unknown>;
+  }): Promise<{ sessionId: string; message: string }> => {
+    const response = await apiClient.post('/llm/generate-document', data);
     return response.data;
   },
 
-  getInterviewQuestions: async (scholarshipId: string): Promise<{ questions: string[] }> => {
-    const response = await apiClient.get(`/ai/interview/questions/${scholarshipId}`);
-    return response.data;
-  },
-
-  evaluateAnswer: async (data: {
+  interviewPrep: async (data: {
     question: string;
-    answer: string;
-  }): Promise<{ feedback: string; score: number }> => {
-    const response = await apiClient.post('/ai/interview/evaluate', data);
+    context?: Record<string, unknown>;
+  }): Promise<{ sessionId: string; message: string }> => {
+    const response = await apiClient.post('/llm/interview-prep', data);
     return response.data;
   },
 };
