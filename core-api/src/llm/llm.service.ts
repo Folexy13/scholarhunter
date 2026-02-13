@@ -36,6 +36,7 @@ export class LLMService {
     sessionId: string,
     message: string,
     context?: Record<string, unknown>,
+    attachments?: any[],
   ): Promise<void> {
     console.log(`Starting chat stream for user ${userId}, session ${sessionId}`);
     try {
@@ -47,6 +48,8 @@ export class LLMService {
         {
           message,
           context,
+          conversation_history: context?.conversation_history,
+          attachments,
         },
         {
           responseType: 'stream',

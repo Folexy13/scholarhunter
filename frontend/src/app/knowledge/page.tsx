@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -52,7 +52,6 @@ function parseAIResponse(content: string): {
   action?: { type: string; document_type: string };
 } {
   try {
-    // Clean content - sometimes LLM wraps JSON in markdown blocks
     let cleanContent = content.trim();
     if (cleanContent.startsWith("```json")) {
       cleanContent = cleanContent.replace(/^```json\n?/, "").replace(/\n?```$/, "");
@@ -60,7 +59,6 @@ function parseAIResponse(content: string): {
       cleanContent = cleanContent.replace(/^```\n?/, "").replace(/\n?```$/, "");
     }
     
-    // Try to parse as JSON
     const parsed = JSON.parse(cleanContent);
     return {
       message: parsed.message || content,
@@ -70,7 +68,6 @@ function parseAIResponse(content: string): {
       action: parsed.action
     };
   } catch {
-    // Not JSON, return as-is
     return {
       message: content,
       suggestions: [],
@@ -79,14 +76,13 @@ function parseAIResponse(content: string): {
   }
 }
 
-// Get display content from a message (parses JSON if needed)
+// Get display content from a message
 function getMessageDisplay(msg: Message): { 
   content: string; 
   suggestions: string[]; 
   followUpQuestions: string[];
   action?: { type: string; document_type: string };
 } {
-  // If it's streaming and starts with {, it's likely JSON we shouldn't show raw
   const isLikelyJson = msg.content.trim().startsWith('{') || msg.content.trim().startsWith('```json');
   
   if (msg.isStreaming && isLikelyJson) {
@@ -97,7 +93,6 @@ function getMessageDisplay(msg: Message): {
     };
   }
 
-  // If already parsed, use those
   if (msg.suggestions || msg.followUpQuestions) {
     return {
       content: msg.content,
@@ -106,7 +101,6 @@ function getMessageDisplay(msg: Message): {
     };
   }
   
-  // Otherwise, try to parse the content as JSON
   const parsed = parseAIResponse(msg.content);
   return {
     content: parsed.message,
@@ -117,7 +111,7 @@ function getMessageDisplay(msg: Message): {
 }
 
 export default function KnowledgePage() {
-  const [message, setMessage] = useState("");
+  const [inputMessage, setInputMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -129,9 +123,9 @@ export default function KnowledgePage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { on, off, isConnected } = useWebSocket();
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -158,7 +152,6 @@ export default function KnowledgePage() {
       reader.readAsDataURL(file);
     });
     
-    // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -166,14 +159,13 @@ export default function KnowledgePage() {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Load chat history from localStorage
+  // Initial load
   useEffect(() => {
     const savedHistory = localStorage.getItem(CHAT_HISTORY_KEY);
     if (savedHistory) {
       try {
         const sessions = JSON.parse(savedHistory) as ChatSession[];
         setChatSessions(sessions);
-        // Load the most recent session if available
         if (sessions.length > 0) {
           const mostRecent = sessions[0];
           setActiveSessionId(mostRecent.id);
@@ -185,38 +177,31 @@ export default function KnowledgePage() {
     }
   }, []);
 
-  // Save chat history to localStorage
   const saveChatHistory = useCallback((sessions: ChatSession[]) => {
     localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(sessions.slice(0, MAX_SESSIONS)));
   }, []);
 
-  // Update current session in history
   const updateCurrentSession = useCallback((newMessages: Message[]) => {
     if (newMessages.length === 0) return;
 
     setChatSessions(prev => {
-      const sessions = [...prev];
-      const existingIndex = sessions.findIndex(s => s.id === activeSessionId);
-      
-      // Generate title from first user message
+      const existingIndex = prev.findIndex(s => s.id === activeSessionId);
       const firstUserMessage = newMessages.find(m => m.type === "user");
       const title = firstUserMessage 
         ? firstUserMessage.content.substring(0, 50) + (firstUserMessage.content.length > 50 ? "..." : "")
         : "New Chat";
 
+      const updatedSessions = [...prev];
       if (existingIndex >= 0) {
-        // Update existing session
-        sessions[existingIndex] = {
-          ...sessions[existingIndex],
+        updatedSessions[existingIndex] = {
+          ...updatedSessions[existingIndex],
           messages: newMessages,
           updatedAt: new Date().toISOString(),
         };
-        // Move to top
-        const [updated] = sessions.splice(existingIndex, 1);
-        sessions.unshift(updated);
+        const [updated] = updatedSessions.splice(existingIndex, 1);
+        updatedSessions.unshift(updated);
       } else if (activeSessionId) {
-        // Create new session
-        sessions.unshift({
+        updatedSessions.unshift({
           id: activeSessionId,
           title,
           messages: newMessages,
@@ -225,14 +210,14 @@ export default function KnowledgePage() {
         });
       }
 
-      saveChatHistory(sessions);
-      return sessions;
+      saveChatHistory(updatedSessions);
+      return updatedSessions;
     });
   }, [activeSessionId, saveChatHistory]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
   useEffect(() => {
     const handleChatChunk = (data: { sessionId: string; chunk: string; done: boolean }) => {
@@ -309,9 +294,7 @@ export default function KnowledgePage() {
         toast.loading(`ScholarBot is starting to draft your ${action.document_type}...`);
         await aiApi.generateDocument({
           documentType: action.document_type,
-          data: {
-            context: "Generated from chat conversation"
-          }
+          data: { context: "Generated from chat conversation" }
         });
       } catch (e) {
         toast.error("Failed to start generation");
@@ -320,10 +303,9 @@ export default function KnowledgePage() {
   };
 
   const handleSendMessage = async (customMessage?: string) => {
-    const textToSend = customMessage || message;
+    const textToSend = customMessage || inputMessage;
     if ((!textToSend.trim() && selectedFiles.length === 0) || isLoading) return;
 
-    // Create new session if needed
     let sessionId = activeSessionId;
     if (!sessionId) {
       sessionId = crypto.randomUUID();
@@ -340,7 +322,7 @@ export default function KnowledgePage() {
 
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
-    setMessage("");
+    setInputMessage("");
     setSelectedFiles([]);
     setIsLoading(true);
 
@@ -400,7 +382,6 @@ export default function KnowledgePage() {
   return (
     <MainLayout>
       <div className="flex h-[calc(100vh-4.1rem)] overflow-hidden">
-        {/* Sidebar */}
         {showHistory && (
           <aside className="w-72 flex-shrink-0 border-r bg-muted/20 flex flex-col hidden lg:flex">
             <div className="p-4 border-b flex items-center justify-between">
@@ -457,9 +438,7 @@ export default function KnowledgePage() {
           </aside>
         )}
 
-        {/* Main Chat Area */}
         <div className="flex-1 flex flex-col min-w-0 bg-background">
-          {/* Header */}
           <div className="p-4 border-b flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Button 
@@ -485,7 +464,6 @@ export default function KnowledgePage() {
             </div>
           </div>
 
-          {/* Messages Container */}
           <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 custom-scrollbar">
             {messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-8">
@@ -532,17 +510,26 @@ export default function KnowledgePage() {
 
                       <div className={`flex flex-col ${msg.type === 'user' ? 'items-end' : 'items-start'} max-w-[85%] md:max-w-[80%] min-w-0`}>
                         <Card className={`p-4 md:p-5 ${msg.type === 'user' ? 'bg-primary text-primary-foreground' : 'bg-card'} overflow-hidden shadow-sm border-primary/5 rounded-2xl`}>
-                          {/* Display Attachments if any */}
                           {msg.attachments && msg.attachments.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mb-3">
+                            <div className="flex flex-wrap gap-3 mb-4">
                               {msg.attachments.map((att, i) => (
-                                <div key={i} className="relative group">
+                                <div key={i} className="relative group max-w-[200px]">
                                   {att.preview ? (
-                                    <img src={att.preview} alt={att.name} className="h-20 w-20 object-cover rounded-lg border border-white/20" />
+                                    <div className="rounded-xl overflow-hidden border border-white/10 shadow-lg transition-transform hover:scale-[1.02]">
+                                      <img src={att.preview} alt={att.name} className="h-32 w-auto object-cover" />
+                                      <div className="p-2 bg-background/80 backdrop-blur-sm">
+                                        <p className="text-[10px] font-bold truncate">{att.name}</p>
+                                      </div>
+                                    </div>
                                   ) : (
-                                    <div className="h-20 w-20 bg-muted/20 rounded-lg flex flex-col items-center justify-center p-2 border border-white/20">
-                                      <FileText className="h-6 w-6 mb-1" />
-                                      <span className="text-[8px] truncate w-full text-center">{att.name}</span>
+                                    <div className="bg-primary/5 rounded-xl p-3 border border-white/10 shadow-lg flex items-center gap-3 transition-all hover:bg-primary/10">
+                                      <div className="h-10 w-10 bg-primary/20 rounded-lg flex items-center justify-center">
+                                        {att.mime_type.includes('pdf') ? <FileText className="h-6 w-6 text-primary" /> : <Paperclip className="h-6 w-6 text-primary" />}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="text-[10px] font-bold truncate uppercase tracking-widest text-primary/80">{att.mime_type.split('/')[1]}</p>
+                                        <p className="text-[11px] font-medium truncate w-32">{att.name}</p>
+                                      </div>
                                     </div>
                                   )}
                                 </div>
@@ -562,10 +549,8 @@ export default function KnowledgePage() {
                         </Card>
                         <span className="text-[10px] text-muted-foreground mt-2 px-1 uppercase font-bold tracking-widest opacity-60">{msg.timestamp}</span>
 
-                        {/* Suggestions and Follow-up Questions */}
                         {msg.type === 'agent' && !msg.isStreaming && display && (
                           <div className="mt-6 w-full flex flex-col gap-2 animate-in slide-in-from-bottom-2 duration-300">
-                             {/* Action Card if AI triggers a generation */}
                              {display.action && (
                                <div className="mb-4 p-4 bg-primary/10 border border-primary/20 rounded-2xl flex items-center justify-between shadow-sm">
                                  <div className="flex items-center gap-3">
@@ -585,23 +570,27 @@ export default function KnowledgePage() {
                                </div>
                              )}
 
-                             <div className="flex items-center gap-2 mb-1">
-                                <div className="h-px flex-1 bg-muted" />
-                                <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Follow-up Questions</span>
-                                <div className="h-px flex-1 bg-muted" />
-                             </div>
-                             <div className="flex flex-wrap gap-2">
-                              {display.followUpQuestions.map((q, i) => (
-                                <button
-                                  key={i}
-                                  onClick={() => handleSendMessage(q)}
-                                  className="text-xs bg-muted/40 hover:bg-primary/10 hover:text-primary border border-primary/10 rounded-xl px-4 py-2.5 transition-all text-left shadow-sm flex items-center gap-2 group"
-                                >
-                                  <Plus className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
-                                  {q}
-                                </button>
-                              ))}
-                            </div>
+                             {display.followUpQuestions.length > 0 && (
+                               <>
+                                 <div className="flex items-center gap-2 mb-1">
+                                    <div className="h-px flex-1 bg-muted" />
+                                    <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Follow-up Questions</span>
+                                    <div className="h-px flex-1 bg-muted" />
+                                 </div>
+                                 <div className="flex flex-wrap gap-2">
+                                  {display.followUpQuestions.map((q, i) => (
+                                    <button
+                                      key={i}
+                                      onClick={() => handleSendMessage(q)}
+                                      className="text-xs bg-muted/40 hover:bg-primary/10 hover:text-primary border border-primary/10 rounded-xl px-4 py-2.5 transition-all text-left shadow-sm flex items-center gap-2 group"
+                                    >
+                                      <Plus className="h-3 w-3 text-muted-foreground group-hover:text-primary" />
+                                      {q}
+                                    </button>
+                                  ))}
+                                </div>
+                               </>
+                             )}
                           </div>
                         )}
                       </div>
@@ -626,10 +615,8 @@ export default function KnowledgePage() {
             )}
           </div>
 
-          {/* Input Area */}
           <div className="p-4 md:p-6 border-t bg-card/30 backdrop-blur-md">
             <div className="max-w-4xl mx-auto space-y-4">
-              {/* Selected Files Preview */}
               {selectedFiles.length > 0 && (
                 <div className="flex flex-wrap gap-2 animate-in slide-in-from-bottom-2 duration-200">
                   {selectedFiles.map((file, i) => (
@@ -677,8 +664,8 @@ export default function KnowledgePage() {
                 
                 <Input
                   placeholder="Type your question or drop a file..."
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                   disabled={isLoading}
                   className="pl-24 pr-14 py-6 md:py-8 rounded-2xl border-primary/10 focus-visible:ring-primary shadow-sm bg-background/50"
@@ -687,7 +674,7 @@ export default function KnowledgePage() {
                 <Button 
                   size="icon" 
                   onClick={() => handleSendMessage()} 
-                  disabled={isLoading || (!message.trim() && selectedFiles.length === 0)}
+                  disabled={isLoading || (!inputMessage.trim() && selectedFiles.length === 0)}
                   className="absolute right-2 h-10 w-10 md:h-12 md:w-12 rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95"
                 >
                   <Send className="h-5 w-5" />
@@ -700,7 +687,7 @@ export default function KnowledgePage() {
                   <span className="h-1 w-1 bg-muted-foreground rounded-full" />
                   <span>Multimodal Input Ready</span>
                 </div>
-                <span>ScholarBot v1.2</span>
+                <span>ScholarBot v1.3</span>
               </div>
             </div>
           </div>

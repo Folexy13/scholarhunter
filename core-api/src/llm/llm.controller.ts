@@ -20,13 +20,13 @@ export class LLMController {
   @HttpCode(HttpStatus.ACCEPTED)
   async chat(
     @CurrentUser() user: { id: string },
-    @Body() body: { message: string; context?: Record<string, unknown> },
+    @Body() body: { message: string; context?: Record<string, unknown>; attachments?: any[] },
   ) {
     const sessionId = uuidv4();
 
     // Start streaming in background
     this.llmService
-      .streamChat(user.id, sessionId, body.message, body.context)
+      .streamChat(user.id, sessionId, body.message, body.context, body.attachments)
       .catch((error) => {
         console.error('Chat stream error:', error);
       });

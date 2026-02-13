@@ -419,7 +419,7 @@ Evaluate the answer and provide feedback as JSON:
     
     async def _generate_content(
         self,
-        prompt: str,
+        prompt: Any,
         temperature: float = 0.7,
         max_tokens: int = 2048
     ) -> str:
@@ -427,7 +427,7 @@ Evaluate the answer and provide feedback as JSON:
         Generate content using Gemini AI
         
         Args:
-            prompt: The prompt to send to Gemini
+            prompt: The prompt to send to Gemini (string or list of parts)
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
             
