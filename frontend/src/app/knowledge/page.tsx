@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -597,16 +597,16 @@ export default function KnowledgePage() {
                     </div>
                   );
                 })}
-                {isLoading && !currentSessionId && (
-                  <div className="flex gap-4 animate-pulse">
-                    <Avatar className="h-10 w-10">
+                {(isLoading && messages[messages.length - 1]?.type === 'user') && (
+                  <div className="flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <Avatar className="h-10 w-10 shadow-sm">
                       <AvatarFallback className="bg-muted">
-                        <Sparkles className="h-5 w-5 text-primary" />
+                        <Sparkles className="h-5 w-5 text-primary animate-pulse" />
                       </AvatarFallback>
                     </Avatar>
-                    <div className="space-y-3 pt-2">
-                      <div className="h-4 w-64 bg-muted rounded-full opacity-60"></div>
-                      <div className="h-4 w-48 bg-muted rounded-full opacity-40"></div>
+                    <div className="space-y-2 pt-2">
+                      <div className="h-3 w-48 bg-primary/10 rounded-full animate-pulse"></div>
+                      <div className="h-3 w-32 bg-primary/5 rounded-full animate-pulse delay-75"></div>
                     </div>
                   </div>
                 )}
@@ -687,7 +687,7 @@ export default function KnowledgePage() {
                   <span className="h-1 w-1 bg-muted-foreground rounded-full" />
                   <span>Multimodal Input Ready</span>
                 </div>
-                <span>ScholarBot v1.3</span>
+                <span>ScholarBot v1.4</span>
               </div>
             </div>
           </div>

@@ -3,7 +3,9 @@ Document Generator API Routes
 """
 
 import logging
+import json
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import StreamingResponse
 
 from app.models.requests import DocumentGenerateRequest
 from app.models.responses import DocumentGenerateResponse
@@ -25,19 +27,6 @@ async def generate_document(
 ):
     """
     Generate scholarship application document using AI
-    
-    - **document_type**: Type of document (SOP, personal_statement, etc.)
-    - **student_profile**: Student's profile data
-    - **scholarship_info**: Scholarship information
-    - **additional_context**: Optional additional context
-    - **word_limit**: Optional word limit
-    
-    Returns generated document with:
-    - Document content
-    - Word count
-    - Key themes
-    - Strengths
-    - Suggestions for improvement
     """
     try:
         logger.info(f"Received document generation request for {doc_request.document_type}")
@@ -72,3 +61,49 @@ async def generate_document(
             success=False,
             error=f"Failed to generate document: {str(e)}"
         )
+
+
+@router.post("/generate-document/stream")
+@limiter.limit("5/minute")
+async def generate_document_stream(
+    request: Request,
+    doc_request: DocumentGenerateRequest,
+    authorized: bool = Depends(verify_api_key)
+):
+    """
+    Stream scholarship application document generation
+    """
+    async def generate():
+        try:
+            logger.info(f"Received streaming document generation request for {doc_request.document_type}")
+            
+            # Get Gemini service from app state
+            gemini_service = request.app.state.gemini_service
+            
+            # Stream document generation
+            async for chunk in gemini_service.generate_document_stream(
+                document_type=doc_request.document_type,
+                student_profile=doc_request.student_profile,
+                scholarship_info=doc_request.scholarship_info,
+                additional_context=doc_request.additional_context
+            ):
+                yield f"data: {json.dumps({'content': chunk})}\n\n"
+            
+            # Send done signal
+            yield "data: [DONE]\n\n"
+            
+            logger.info(f"Streaming document generation completed: {doc_request.document_type}")
+            
+        except Exception as e:
+            logger.error(f"Error in streaming document generation: {e}", exc_info=True)
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )

@@ -417,6 +417,108 @@ Evaluate the answer and provide feedback as JSON:
             logger.error(f"Error in interview prep: {e}", exc_info=True)
             raise
     
+    async def discover_faculty(
+        self,
+        mode: str,
+        continent: Optional[str] = None,
+        university: Optional[str] = None,
+        department: Optional[str] = None,
+        student_profile: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Identify universities, departments, and faculty based on region
+        """
+        self._ensure_initialized()
+        
+        try:
+            # Load instructions
+            instructions = self.yaml_loader.load_instruction("faculty_discovery")
+            
+            # Build prompt
+            prompt = instructions['system_prompt'].format(
+                mode=mode,
+                continent=continent or "Not Specified",
+                university=university or "Not Specified",
+                department=department or "Not Specified"
+            )
+            
+            if student_profile:
+                prompt += f"\n\nSTUDENT PROFILE:\n{json.dumps(student_profile, indent=2)}"
+            
+            # Generate response
+            response = await self._generate_content(
+                prompt=prompt,
+                temperature=instructions.get("temperature", 0.3),
+                max_tokens=instructions.get("max_tokens", 2048),
+            )
+            
+            # Parse JSON response
+            result = self._parse_json_response(response)
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in faculty discovery: {e}", exc_info=True)
+            raise
+
+    async def generate_document_stream(
+        self,
+        document_type: str,
+        student_profile: Dict[str, Any],
+        scholarship_info: Dict[str, Any],
+        additional_context: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Stream scholarship application document generation
+        """
+        self._ensure_initialized()
+        
+        try:
+            # Load instructions
+            instructions = self.yaml_loader.load_instruction("document_generator")
+            
+            # Build prompt
+            context = additional_context or {}
+            prompt = f"""{instructions['system_prompt']}
+
+DOCUMENT TYPE: {document_type}
+
+STUDENT PROFILE:
+{json.dumps(student_profile, indent=2)}
+
+SCHOLARSHIP INFORMATION:
+{json.dumps(scholarship_info, indent=2)}
+
+ADDITIONAL CONTEXT:
+{json.dumps(context, indent=2)}
+
+Generate a compelling {document_type} and return as JSON:
+"""
+            
+            # Configure generation
+            generation_config = genai.types.GenerationConfig(
+                temperature=instructions.get("temperature", 0.7),
+                max_output_tokens=instructions.get("max_tokens", 4096),
+                candidate_count=1,
+            )
+            
+            # Generate streaming response
+            response = self.model.generate_content(
+                prompt,
+                generation_config=generation_config,
+                stream=True,
+            )
+            
+            # Yield chunks as they come
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
+            
+            logger.info(f"Streaming {document_type} generation completed")
+            
+        except Exception as e:
+            logger.error(f"Error in streaming document generation: {e}", exc_info=True)
+            raise
+
     async def _generate_content(
         self,
         prompt: Any,
@@ -460,32 +562,18 @@ Evaluate the answer and provide feedback as JSON:
     
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """
-        Parse JSON from AI response
-        
-        Args:
-            response: Raw response text
-            
-        Returns:
-            Parsed JSON data
+        Parse JSON from AI response with robust repair
         """
+        import json_repair
+        
+        # Clean common artifacts
+        json_str = response.strip()
+        
         try:
-            # Try to find JSON in response
-            # Sometimes AI wraps JSON in markdown code blocks
-            if "```json" in response:
-                start = response.find("```json") + 7
-                end = response.find("```", start)
-                json_str = response[start:end].strip()
-            elif "```" in response:
-                start = response.find("```") + 3
-                end = response.find("```", start)
-                json_str = response[start:end].strip()
-            else:
-                json_str = response.strip()
-            
-            # Parse JSON
-            return json.loads(json_str)
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            logger.debug(f"Response was: {response}")
-            raise ValueError(f"Invalid JSON response from AI: {str(e)}")
+            # json_repair handles missing commas, trailing commas, 
+            # unquoted keys, and markdown blocks automatically.
+            return json_repair.loads(json_str)
+        except Exception as e:
+            logger.error(f"Failed to repair and parse JSON: {e}")
+            logger.debug(f"Raw string: {response}")
+            raise ValueError(f"Invalid JSON response from AI even after repair: {str(e)}")

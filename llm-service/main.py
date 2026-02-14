@@ -20,7 +20,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
 from app.core.security import verify_api_key
-from app.api.routes import cv_parser, scholarship_matcher, document_generator, chat, interview, scholarship_discovery
+from app.api.routes import cv_parser, scholarship_matcher, document_generator, chat, interview, scholarship_discovery, faculty
 from app.core.logging_config import setup_logging
 
 # Setup logging
@@ -67,6 +67,24 @@ app = FastAPI(
 # Add rate limiter to app state
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# Security Middleware
+# OWASP: Security Misconfiguration
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=settings.allowed_hosts_list,
+)
+
+# OWASP: Cross-Site Scripting (XSS) & CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+    max_age=3600,
+)
 
 
 # Security Headers Middleware
@@ -181,6 +199,7 @@ app.include_router(scholarship_discovery.router, prefix="/api/llm/scholarships",
 app.include_router(document_generator.router, prefix="/api/llm", tags=["Document Generator"])
 app.include_router(chat.router, prefix="/api/llm", tags=["Chat"])
 app.include_router(interview.router, prefix="/api/llm", tags=["Interview Prep"])
+app.include_router(faculty.router, prefix="/api/llm/faculty", tags=["Faculty Discovery"])
 
 
 # Root endpoint

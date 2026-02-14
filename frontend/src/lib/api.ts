@@ -304,6 +304,18 @@ export const aiApi = {
     const response = await apiClient.post('/llm/interview-prep', data);
     return response.data;
   },
+
+  discoverFaculty: async (data: {
+    mode: string;
+    continent?: string;
+    university?: string;
+    department?: string;
+    faculty_name?: string;
+    student_profile?: Record<string, unknown>;
+  }): Promise<{ success: boolean; data: { results: Record<string, unknown>[]; email_draft?: string; advice?: string } }> => {
+    const response = await apiClient.post('/llm/faculty/discover', data);
+    return response.data;
+  },
 };
 
 export default {

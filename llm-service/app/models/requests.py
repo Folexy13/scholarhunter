@@ -129,3 +129,14 @@ class ScholarshipDiscoveryRequest(BaseModel):
         if v < 1 or v > 50:
             raise ValueError("Count must be between 1 and 50")
         return v
+
+
+class FacultyDiscoveryRequest(BaseModel):
+    """Request model for faculty and university discovery"""
+    mode: str = Field(..., description="LIST_UNIVERSITIES, LIST_DEPARTMENTS, LIST_FACULTY, GENERATE_COLD_EMAIL")
+    continent: Optional[str] = None
+    university: Optional[str] = None
+    department: Optional[str] = None
+    faculty_name: Optional[str] = None
+    student_profile: Optional[Dict[str, Any]] = None
+

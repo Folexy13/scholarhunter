@@ -105,4 +105,26 @@ export class LLMController {
       message: 'Interview prep stream started. Listen for WebSocket events.',
     };
   }
+
+  @Post('faculty/discover')
+  async discoverFaculty(
+    @Body()
+    body: {
+      mode: string;
+      continent?: string;
+      university?: string;
+      department?: string;
+      faculty_name?: string;
+      student_profile?: Record<string, unknown>;
+    },
+  ) {
+    return this.llmService.discoverFaculty(
+      body.mode,
+      body.continent,
+      body.university,
+      body.department,
+      body.faculty_name,
+      body.student_profile,
+    );
+  }
 }

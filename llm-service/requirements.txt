@@ -28,6 +28,9 @@ httpx==0.28.1
 # Logging and Monitoring
 python-json-logger==2.0.7
 
+# JSON Repair
+json-repair==0.25.0
+
 # Testing
 pytest==8.3.4
 pytest-asyncio==0.25.3

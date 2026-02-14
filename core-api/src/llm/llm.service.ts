@@ -24,7 +24,7 @@ export class LLMService {
   private getHeaders(): Record<string, string> {
     return {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${this.apiKey}`,
+      Authorization: `Bearer ${this.apiKey}`,
     };
   }
 
@@ -42,7 +42,6 @@ export class LLMService {
     try {
       console.log(`Calling LLM service at ${this.llmServiceUrl}/api/llm/chat/stream`);
       
-      // Use the streaming endpoint
       const response = await axios.post(
         `${this.llmServiceUrl}/api/llm/chat/stream`,
         {
@@ -57,10 +56,8 @@ export class LLMService {
         },
       );
 
-      console.log(`LLM service responded, setting up stream handlers`);
       let fullResponse = '';
 
-      // Handle streaming response
       response.data.on('data', (chunk: Buffer) => {
         const chunkStr = chunk.toString();
         const lines = chunkStr.split('\n').filter((line: string) => line.trim());
@@ -69,8 +66,6 @@ export class LLMService {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
             if (data === '[DONE]') {
-              // Stream complete
-              console.log(`Stream complete, total response length: ${fullResponse.length}`);
               this.notificationsService.streamLLMComplete(
                 userId,
                 sessionId,
@@ -81,7 +76,6 @@ export class LLMService {
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.error) {
-                  console.error(`LLM service error: ${parsed.error}`);
                   this.notificationsService.streamLLMError(
                     userId,
                     sessionId,
@@ -100,16 +94,13 @@ export class LLMService {
                     );
                   }
                 }
-              } catch (e) {
-                console.warn(`Failed to parse chunk: ${data}`);
-              }
+              } catch (e) {}
             }
           }
         }
       });
 
       response.data.on('error', (error: Error) => {
-        console.error(`Stream error: ${error.message}`);
         this.notificationsService.streamLLMError(
           userId,
           sessionId,
@@ -117,22 +108,9 @@ export class LLMService {
           { context },
         );
       });
-
-      response.data.on('end', () => {
-        console.log(`Stream ended, response length: ${fullResponse.length}`);
-        if (fullResponse && !fullResponse.includes('[DONE]')) {
-          this.notificationsService.streamLLMComplete(
-            userId,
-            sessionId,
-            fullResponse,
-            { context },
-          );
-        }
-      });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      console.error(`LLM service error: ${errorMessage}`);
       this.notificationsService.streamLLMError(
         userId,
         sessionId,
@@ -153,16 +131,11 @@ export class LLMService {
   ): Promise<void> {
     try {
       const response = await axios.post(
-        `${this.llmServiceUrl}/api/cv-parser/parse`,
-        {
-          cv_content: cvContent,
-          stream: true,
-        },
+        `${this.llmServiceUrl}/api/llm/cv-parser/parse`,
+        { cv_content: cvContent, stream: true },
         {
           responseType: 'stream',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: this.getHeaders(),
         },
       );
 
@@ -180,7 +153,6 @@ export class LLMService {
       });
 
       response.data.on('error', (error: Error) => {
-        console.error(`CV parse stream error: ${error.message}`);
         this.notificationsService.streamLLMError(
           userId,
           sessionId,
@@ -200,7 +172,6 @@ export class LLMService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      console.error(`CV parse error: ${errorMessage}`);
       this.notificationsService.streamLLMError(
         userId,
         sessionId,
@@ -221,18 +192,18 @@ export class LLMService {
     data: Record<string, unknown>,
   ): Promise<void> {
     try {
+      console.log(`Starting document stream for user ${userId}, session ${sessionId}`);
       const response = await axios.post(
-        `${this.llmServiceUrl}/api/document-generator/generate`,
+        `${this.llmServiceUrl}/api/llm/generate-document/stream`,
         {
           document_type: documentType,
-          data,
-          stream: true,
+          student_profile: data.student_profile || {},
+          scholarship_info: data.scholarship_info || { name: data.scholarshipName },
+          additional_context: data.additionalContext || {},
         },
         {
           responseType: 'stream',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: this.getHeaders(),
         },
       );
 
@@ -240,42 +211,64 @@ export class LLMService {
 
       response.data.on('data', (chunk: Buffer) => {
         const chunkStr = chunk.toString();
-        fullResponse += chunkStr;
-        this.notificationsService.streamLLMChunk(
-          userId,
-          sessionId,
-          chunkStr,
-          { type: 'document-generation', documentType },
-        );
+        const lines = chunkStr.split('\n').filter((line: string) => line.trim());
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') {
+              this.notificationsService.notifyDocumentGenerationComplete(
+                userId,
+                sessionId,
+                documentType,
+                true,
+                { content: fullResponse },
+              );
+            } else {
+              try {
+                const parsed = JSON.parse(dataStr);
+                if (parsed.error) {
+                  this.notificationsService.notifyDocumentGenerationComplete(
+                    userId,
+                    sessionId,
+                    documentType,
+                    false,
+                    { error: parsed.error },
+                  );
+                } else {
+                  const content = parsed.content || '';
+                  if (content) {
+                    fullResponse += content;
+                    this.notificationsService.streamLLMChunk(
+                      userId,
+                      sessionId,
+                      content,
+                      { type: 'document-generation', documentType },
+                    );
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+        }
       });
 
       response.data.on('error', (error: Error) => {
-        console.error(`Document generation stream error: ${error.message}`);
-        this.notificationsService.streamLLMError(
+        this.notificationsService.notifyDocumentGenerationComplete(
           userId,
           sessionId,
-          error.message,
-          { type: 'document-generation', documentType },
-        );
-      });
-
-      response.data.on('end', () => {
-        this.notificationsService.streamLLMComplete(
-          userId,
-          sessionId,
-          fullResponse,
-          { type: 'document-generation', documentType },
+          documentType,
+          false,
+          { error: error.message },
         );
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      console.error(`Document generation error: ${errorMessage}`);
-      this.notificationsService.streamLLMError(
+      this.notificationsService.notifyDocumentGenerationComplete(
         userId,
         sessionId,
-        errorMessage,
-        { type: 'document-generation', documentType },
+        documentType,
+        false,
+        { error: (error as any).message },
       );
       throw error;
     }
@@ -292,17 +285,11 @@ export class LLMService {
   ): Promise<void> {
     try {
       const response = await axios.post(
-        `${this.llmServiceUrl}/api/interview/practice`,
-        {
-          question,
-          context,
-          stream: true,
-        },
+        `${this.llmServiceUrl}/api/llm/interview/practice`,
+        { question, context, stream: true },
         {
           responseType: 'stream',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: this.getHeaders(),
         },
       );
 
@@ -320,7 +307,6 @@ export class LLMService {
       });
 
       response.data.on('error', (error: Error) => {
-        console.error(`Interview prep stream error: ${error.message}`);
         this.notificationsService.streamLLMError(
           userId,
           sessionId,
@@ -340,7 +326,6 @@ export class LLMService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      console.error(`Interview prep error: ${errorMessage}`);
       this.notificationsService.streamLLMError(
         userId,
         sessionId,
@@ -352,12 +337,9 @@ export class LLMService {
   }
 
   /**
-   * Non-streaming request to LLM service (for simple requests)
+   * Non-streaming request to LLM service
    */
-  async request<T>(
-    endpoint: string,
-    data: Record<string, unknown>,
-  ): Promise<T> {
+  async request<T>(endpoint: string, data: Record<string, unknown>): Promise<T> {
     try {
       console.log(`Calling LLM service at ${this.llmServiceUrl}${endpoint}`);
       const response = await axios.post<T>(
@@ -365,7 +347,7 @@ export class LLMService {
         data,
         {
           headers: this.getHeaders(),
-          timeout: 60000, // 60 seconds timeout
+          timeout: 60000,
         },
       );
       return response.data;
@@ -378,35 +360,40 @@ export class LLMService {
   }
 
   /**
+   * Discover faculty and universities
+   */
+  async discoverFaculty(
+    mode: string,
+    continent?: string,
+    university?: string,
+    department?: string,
+    faculty_name?: string,
+    student_profile?: Record<string, unknown>,
+  ) {
+    try {
+      const response = await this.request<{ success: boolean; data: any }>(
+        '/api/llm/faculty/discover',
+        { mode, continent, university, department, faculty_name, student_profile },
+      );
+      return response.data;
+    } catch (error) {
+      console.error(`Faculty discovery error: ${(error as any).message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Discover real scholarships using LLM service
    */
   async discoverScholarships(count: number = 10): Promise<{
-    scholarships: Array<{
-      title: string;
-      provider: string;
-      description: string;
-      amount: number;
-      currency: string;
-      deadline: string;
-      country: string;
-      educationLevel: string;
-      fieldOfStudy: string;
-      eligibilityCriteria: string[];
-      applicationUrl: string;
-      isActive: boolean;
-    }>;
+    scholarships: any[];
     count: number;
   }> {
     try {
-      console.log(`Discovering ${count} scholarships from LLM service`);
-      
       const response = await this.request<{
         scholarships: any[];
         count: number;
       }>('/api/llm/scholarships/discover', { count });
-
-      console.log(`Discovered ${response.count} scholarships`);
-      
       return response;
     } catch (error) {
       const errorMessage =
