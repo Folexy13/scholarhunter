@@ -117,6 +117,7 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
   const chatEndRef = useRef<HTMLDivElement>(null);
   const speechStartTimeRef = useRef<number>(0);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const captionIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   // Refs to track current state values for use in callbacks
   const isRecordingRef = useRef(false);
@@ -294,21 +295,57 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
   // Confirm end interview
   const confirmEndInterview = () => {
     setShowEndConfirmation(false);
+    
     // Stop timer
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
     }
-    // Stop any ongoing speech
-    stopSpeaking();
+    
+    // Stop recording
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // Ignore errors
+      }
+    }
+    setIsRecording(false);
+    
+    // Stop any ongoing speech (don't restart recording)
+    stopSpeaking(false);
+    
+    // Stop microphone stream
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop());
+      micStreamRef.current = null;
+    }
+    
+    // Close audio context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try {
+        audioContextRef.current.close();
+      } catch {
+        // Ignore errors
+      }
+    }
+    
     // Close the session
     onClose();
   };
 
-  const stopSpeaking = useCallback(() => {
+  const stopSpeaking = useCallback((shouldRestartRecording: boolean = true) => {
     try {
         // Cancel native speech synthesis
         if (synthesisRef.current) {
             synthesisRef.current.cancel();
+        }
+        
+        // Stop audio element if playing
+        if (audioElementRef.current) {
+            audioElementRef.current.pause();
+            audioElementRef.current.currentTime = 0;
+            audioElementRef.current.src = '';
         }
         
         // Close Azure synthesizer safely
@@ -329,21 +366,30 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
             typingIntervalRef.current = null;
         }
         
+        // Clear caption interval
+        if (captionIntervalRef.current) {
+            clearInterval(captionIntervalRef.current);
+            captionIntervalRef.current = null;
+        }
+        
+        isSpeakingRef.current = false;
         setIsSpeaking(false);
         setIsLoading(false);
         setCaptionText("");
         
-        // Start recording after a short delay
-        setTimeout(() => {
-            if (!isRecording && recognitionRef.current) {
-                try { 
-                    recognitionRef.current.start(); 
-                    setIsRecording(true); 
-                } catch {
-                    // Ignore start errors (may already be running)
+        // Start recording after a short delay (only if requested)
+        if (shouldRestartRecording) {
+            setTimeout(() => {
+                if (!isRecording && recognitionRef.current) {
+                    try {
+                        recognitionRef.current.start();
+                        setIsRecording(true);
+                    } catch {
+                        // Ignore start errors (may already be running)
+                    }
                 }
-            }
-        }, 300);
+            }, 300);
+        }
     } catch (e: unknown) {
         const errorMessage = e instanceof Error ? e.message : 'Unknown error';
         setLastError(errorMessage);
@@ -758,10 +804,17 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
         const aiMessage = response.data.speech;
         addMessage("assistant", aiMessage);
         
-        // Use speaker_id from AI response - the AI now decides which panelist speaks
-        const speakerId = response.data.speaker_id || activeSpeakerId;
+        // Use speaker_id from AI response, but VALIDATE it's one of the selected panelists
+        let speakerId = response.data.speaker_id || activeSpeakerId;
+        
+        // Validate speaker_id is in selected panelists - if not, use the first selected panelist
+        if (!selectedInterviewers.includes(speakerId)) {
+          console.warn(`AI returned invalid speaker_id "${speakerId}" - not in selected panelists. Using first selected panelist.`);
+          speakerId = selectedInterviewers[0] || "sarah";
+        }
+        
         const speakerName = response.data.speaker_name || INTERVIEWERS.find(i => i.id === speakerId)?.name || "AI";
-        console.log("AI selected speaker:", speakerId, "speaker_name:", speakerName);
+        console.log("AI selected speaker:", speakerId, "speaker_name:", speakerName, "selected panelists:", selectedInterviewers);
         setActiveSpeakerId(speakerId);
         setCaptionSpeaker(speakerName);
         
@@ -867,17 +920,25 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
               const audioUrl = URL.createObjectURL(blob);
               const audio = new Audio(audioUrl);
               
+              // Store reference to audio element so we can stop it later
+              audioElementRef.current = audio;
+              
               // Estimate duration based on text length (roughly 150 words per minute)
               const wordCount = text.split(' ').length;
               const estimatedDurationMs = (wordCount / 150) * 60 * 1000;
               
-              // Start subtitle-style caption
+              // Start subtitle-style caption and store the interval
               const captionInterval = startSubtitleCaption(text, speakerName, estimatedDurationMs);
+              captionIntervalRef.current = captionInterval;
               
               audio.onended = () => {
                   console.log("Audio playback completed");
                   URL.revokeObjectURL(audioUrl);
-                  clearInterval(captionInterval);
+                  if (captionIntervalRef.current) {
+                      clearInterval(captionIntervalRef.current);
+                      captionIntervalRef.current = null;
+                  }
+                  audioElementRef.current = null;
                   
                   // Update ref immediately before state
                   isSpeakingRef.current = false;
@@ -896,7 +957,11 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
               audio.onerror = (e) => {
                   console.error("Audio playback error:", e);
                   URL.revokeObjectURL(audioUrl);
-                  clearInterval(captionInterval);
+                  if (captionIntervalRef.current) {
+                      clearInterval(captionIntervalRef.current);
+                      captionIntervalRef.current = null;
+                  }
+                  audioElementRef.current = null;
                   isSpeakingRef.current = false;
                   setIsSpeaking(false);
                   setIsLoading(false);
@@ -1268,7 +1333,7 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
          <div className={`p-4 rounded-full transition-all duration-500 ${isRecording ? "bg-red-500/20 border border-red-500/50 scale-110" : "bg-white/5 border border-white/10"}`}>
              {isRecording ? <Mic className="h-6 w-6 text-red-500 animate-pulse" /> : <MicOff className="h-6 w-6 text-white/30" />}
          </div>
-         <Button variant="destructive" size="lg" className="rounded-full px-8 h-12 shadow-lg shadow-red-900/20 hover:bg-red-600" onClick={onClose}><PhoneOff className="mr-2 h-5 w-5" /> End Interview</Button>
+         <Button variant="destructive" size="lg" className="rounded-full px-8 h-12 shadow-lg shadow-red-900/20 hover:bg-red-600" onClick={handleEndInterview}><PhoneOff className="mr-2 h-5 w-5" /> End Interview</Button>
          <Button variant="secondary" size="icon" className="rounded-full bg-white/10 hover:bg-white/20 text-white border border-white/5"><MoreVertical className="h-5 w-5" /></Button>
       </div>
     </div>
