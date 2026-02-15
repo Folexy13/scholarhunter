@@ -9,6 +9,7 @@ import { toast } from "react-hot-toast";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import apiClient from "@/lib/api-client";
+import { useWebSocket } from "@/contexts/websocket-context";
 
 interface InterviewSessionProps {
   onClose: () => void;
@@ -59,6 +60,9 @@ const INTERVIEWERS = [
 ];
 
 export function InterviewSession({ onClose, interviewType, persona }: InterviewSessionProps) {
+  // WebSocket for real-time communication
+  const { sendMessage, on, off, isConnected } = useWebSocket();
+  
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -69,6 +73,14 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isJoiningMeeting, setIsJoiningMeeting] = useState(false);
   const [joinProgress, setJoinProgress] = useState("");
+  
+  // WebSocket state
+  const [useWebSocketMode, setUseWebSocketMode] = useState(true); // Use WebSocket by default
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pendingResponseRef = useRef<{
+    resolve: (value: { success: boolean; data: Record<string, unknown> }) => void;
+    reject: (error: Error) => void;
+  } | null>(null);
   
   // Timer State
   const [interviewDuration, setInterviewDuration] = useState(30); // Default 30 minutes
@@ -161,6 +173,93 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
     prefetchAzureToken();
   }, [useAzure]);
 
+  // WebSocket event listeners for interview
+  useEffect(() => {
+    if (!useWebSocketMode) return;
+
+    const handleInterviewResponse = (data: { success: boolean; data: Record<string, unknown>; timestamp: string }) => {
+      console.log("WebSocket interview:response received:", data);
+      if (pendingResponseRef.current) {
+        pendingResponseRef.current.resolve(data);
+        pendingResponseRef.current = null;
+      }
+    };
+
+    const handleInterviewError = (data: { error: string; timestamp: string }) => {
+      console.error("WebSocket interview:error received:", data);
+      if (pendingResponseRef.current) {
+        pendingResponseRef.current.reject(new Error(data.error));
+        pendingResponseRef.current = null;
+      }
+    };
+
+    const handleInterviewProcessing = () => {
+      console.log("WebSocket interview:processing - AI is thinking...");
+    };
+
+    on('interview:response', handleInterviewResponse);
+    on('interview:error', handleInterviewError);
+    on('interview:processing', handleInterviewProcessing);
+
+    return () => {
+      off('interview:response', handleInterviewResponse);
+      off('interview:error', handleInterviewError);
+      off('interview:processing', handleInterviewProcessing);
+    };
+  }, [useWebSocketMode, on, off]);
+
+  // Function to send interview message via WebSocket
+  const sendInterviewMessageWS = useCallback(async (
+    mode: string,
+    userAnswer?: string,
+    history?: { role: string; content: string }[],
+    isConclusion?: boolean
+  ): Promise<{ success: boolean; data: Record<string, unknown> }> => {
+    return new Promise((resolve, reject) => {
+      // Get the names of selected interviewers to pass to the AI
+      const selectedPanelists = selectedInterviewers
+        .map(id => {
+          const interviewer = INTERVIEWERS.find(i => i.id === id);
+          return interviewer ? { id: interviewer.id, name: interviewer.name, role: interviewer.role, title: interviewer.title } : null;
+        })
+        .filter((p): p is { id: string; name: string; role: string; title: string } => p !== null);
+
+      // Store the promise handlers
+      pendingResponseRef.current = { resolve, reject };
+
+      // Set a timeout for the response
+      const timeout = setTimeout(() => {
+        if (pendingResponseRef.current) {
+          pendingResponseRef.current.reject(new Error('Interview response timeout'));
+          pendingResponseRef.current = null;
+        }
+      }, 60000); // 60 second timeout
+
+      // Send the message via WebSocket
+      sendMessage('interview:message', {
+        mode,
+        persona,
+        interview_type: interviewType,
+        user_answer: userAnswer,
+        history,
+        selected_panelists: selectedPanelists,
+        is_conclusion: isConclusion,
+      });
+
+      // Clear timeout when response is received
+      const originalResolve = pendingResponseRef.current.resolve;
+      const originalReject = pendingResponseRef.current.reject;
+      pendingResponseRef.current.resolve = (value) => {
+        clearTimeout(timeout);
+        originalResolve(value);
+      };
+      pendingResponseRef.current.reject = (error) => {
+        clearTimeout(timeout);
+        originalReject(error);
+      };
+    });
+  }, [selectedInterviewers, persona, interviewType, sendMessage]);
+
   // Timer countdown effect
   useEffect(() => {
     if (hasStarted && !isTimeUp) {
@@ -203,29 +302,43 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
     setIsLoading(true);
     
     try {
-      // Get the names of selected interviewers to pass to the AI
-      const selectedPanelists = selectedInterviewers
-        .map(id => {
-          const interviewer = INTERVIEWERS.find(i => i.id === id);
-          return interviewer ? { id: interviewer.id, name: interviewer.name, role: interviewer.role, title: interviewer.title } : null;
-        })
-        .filter((p): p is { id: string; name: string; role: string; title: string } => p !== null);
+      let response;
       
-      // Send a conclusion request to the AI
-      const response = await aiApi.conductInterview({
-        mode: "continue",
-        persona,
-        interview_type: interviewType,
-        user_answer: "[TIME WARNING: 5 minutes remaining. Please conclude the interview.]",
-        history: messages.map(m => ({ role: m.role, content: m.content })),
-        selected_panelists: selectedPanelists,
-        is_conclusion: true
-      });
+      // Use WebSocket if connected, otherwise fall back to REST API
+      if (useWebSocketMode && isConnected) {
+        console.log("Triggering conclusion via WebSocket...");
+        response = await sendInterviewMessageWS(
+          "continue",
+          "[TIME WARNING: 5 minutes remaining. Please conclude the interview.]",
+          messages.map(m => ({ role: m.role, content: m.content })),
+          true // is_conclusion
+        );
+      } else {
+        console.log("Triggering conclusion via REST API...");
+        // Get the names of selected interviewers to pass to the AI
+        const selectedPanelists = selectedInterviewers
+          .map(id => {
+            const interviewer = INTERVIEWERS.find(i => i.id === id);
+            return interviewer ? { id: interviewer.id, name: interviewer.name, role: interviewer.role, title: interviewer.title } : null;
+          })
+          .filter((p): p is { id: string; name: string; role: string; title: string } => p !== null);
+        
+        // Send a conclusion request to the AI
+        response = await aiApi.conductInterview({
+          mode: "continue",
+          persona,
+          interview_type: interviewType,
+          user_answer: "[TIME WARNING: 5 minutes remaining. Please conclude the interview.]",
+          history: messages.map(m => ({ role: m.role, content: m.content })),
+          selected_panelists: selectedPanelists,
+          is_conclusion: true
+        });
+      }
 
       if (response.success && response.data) {
-        const aiMessage = response.data.speech;
-        const speakerId = response.data.speaker_id || selectedInterviewers[0] || "dr_chen";
-        const speakerName = response.data.speaker_name || INTERVIEWERS.find(i => i.id === speakerId)?.name || "AI";
+        const aiMessage = response.data.speech as string;
+        const speakerId = (response.data.speaker_id as string) || selectedInterviewers[0] || "sarah";
+        const speakerName = (response.data.speaker_name as string) || INTERVIEWERS.find(i => i.id === speakerId)?.name || "AI";
         
         // Update messages
         addMessage("assistant", aiMessage);
@@ -701,28 +814,37 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
   const startInterview = async (token?: string, region?: string) => {
     setIsLoading(true);
     try {
-      // Get the names of selected interviewers to pass to the AI
-      const selectedPanelists = selectedInterviewers
-        .map(id => {
-          const interviewer = INTERVIEWERS.find(i => i.id === id);
-          return interviewer ? { id: interviewer.id, name: interviewer.name, role: interviewer.role, title: interviewer.title } : null;
-        })
-        .filter((p): p is { id: string; name: string; role: string; title: string } => p !== null);
+      let response;
       
-      const response = await aiApi.conductInterview({
-        mode: "start",
-        persona,
-        interview_type: interviewType,
-        selected_panelists: selectedPanelists,
-      });
+      // Use WebSocket if connected, otherwise fall back to REST API
+      if (useWebSocketMode && isConnected) {
+        console.log("Starting interview via WebSocket...");
+        response = await sendInterviewMessageWS("start");
+      } else {
+        console.log("Starting interview via REST API...");
+        // Get the names of selected interviewers to pass to the AI
+        const selectedPanelists = selectedInterviewers
+          .map(id => {
+            const interviewer = INTERVIEWERS.find(i => i.id === id);
+            return interviewer ? { id: interviewer.id, name: interviewer.name, role: interviewer.role, title: interviewer.title } : null;
+          })
+          .filter((p): p is { id: string; name: string; role: string; title: string } => p !== null);
+        
+        response = await aiApi.conductInterview({
+          mode: "start",
+          persona,
+          interview_type: interviewType,
+          selected_panelists: selectedPanelists,
+        });
+      }
 
       if (response.success && response.data) {
-        const aiMessage = response.data.speech;
+        const aiMessage = response.data.speech as string;
         addMessage("assistant", aiMessage);
         
         // Use speaker_id from AI response, fallback to first selected interviewer
-        const speakerId = response.data.speaker_id || selectedInterviewers[0] || "sarah";
-        const speakerName = response.data.speaker_name || INTERVIEWERS.find(i => i.id === speakerId)?.name || "AI";
+        const speakerId = (response.data.speaker_id as string) || selectedInterviewers[0] || "sarah";
+        const speakerName = (response.data.speaker_name as string) || INTERVIEWERS.find(i => i.id === speakerId)?.name || "AI";
         console.log("AI selected speaker:", speakerId, "speaker_name:", speakerName);
         setActiveSpeakerId(speakerId);
         setCaptionSpeaker(speakerName);
@@ -783,29 +905,42 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
     setIsLoading(true);
 
     try {
-      // Get the names of selected interviewers to pass to the AI
-      const selectedPanelists = selectedInterviewers
-        .map(id => {
-          const interviewer = INTERVIEWERS.find(i => i.id === id);
-          return interviewer ? { id: interviewer.id, name: interviewer.name, role: interviewer.role, title: interviewer.title } : null;
-        })
-        .filter((p): p is { id: string; name: string; role: string; title: string } => p !== null);
+      let response;
       
-      const response = await aiApi.conductInterview({
-        mode: "continue",
-        persona,
-        interview_type: interviewType,
-        user_answer: userMessage,
-        history: messages.map(m => ({ role: m.role, content: m.content })),
-        selected_panelists: selectedPanelists,
-      });
+      // Use WebSocket if connected, otherwise fall back to REST API
+      if (useWebSocketMode && isConnected) {
+        console.log("Sending response via WebSocket...");
+        response = await sendInterviewMessageWS(
+          "continue",
+          userMessage,
+          messages.map(m => ({ role: m.role, content: m.content }))
+        );
+      } else {
+        console.log("Sending response via REST API...");
+        // Get the names of selected interviewers to pass to the AI
+        const selectedPanelists = selectedInterviewers
+          .map(id => {
+            const interviewer = INTERVIEWERS.find(i => i.id === id);
+            return interviewer ? { id: interviewer.id, name: interviewer.name, role: interviewer.role, title: interviewer.title } : null;
+          })
+          .filter((p): p is { id: string; name: string; role: string; title: string } => p !== null);
+        
+        response = await aiApi.conductInterview({
+          mode: "continue",
+          persona,
+          interview_type: interviewType,
+          user_answer: userMessage,
+          history: messages.map(m => ({ role: m.role, content: m.content })),
+          selected_panelists: selectedPanelists,
+        });
+      }
 
       if (response.success && response.data) {
-        const aiMessage = response.data.speech;
+        const aiMessage = response.data.speech as string;
         addMessage("assistant", aiMessage);
         
         // Use speaker_id from AI response, but VALIDATE it's one of the selected panelists
-        let speakerId = response.data.speaker_id || activeSpeakerId;
+        let speakerId = (response.data.speaker_id as string) || activeSpeakerId;
         
         // Validate speaker_id is in selected panelists - if not, use the first selected panelist
         if (!selectedInterviewers.includes(speakerId)) {
@@ -813,7 +948,7 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
           speakerId = selectedInterviewers[0] || "sarah";
         }
         
-        const speakerName = response.data.speaker_name || INTERVIEWERS.find(i => i.id === speakerId)?.name || "AI";
+        const speakerName = (response.data.speaker_name as string) || INTERVIEWERS.find(i => i.id === speakerId)?.name || "AI";
         console.log("AI selected speaker:", speakerId, "speaker_name:", speakerName, "selected panelists:", selectedInterviewers);
         setActiveSpeakerId(speakerId);
         setCaptionSpeaker(speakerName);

@@ -346,6 +346,90 @@ export class NotificationsGateway
     return this.connectedClients.size;
   }
 
+  // Interview WebSocket handler - for real-time interview communication
+  @SubscribeMessage('interview:message')
+  async handleInterviewMessage(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: {
+      mode: string;
+      persona: string;
+      interview_type: string;
+      user_answer?: string;
+      history?: any[];
+      student_profile?: Record<string, unknown>;
+      selected_panelists?: any[];
+      is_conclusion?: boolean;
+    },
+  ) {
+    if (!client.userId) {
+      return { error: 'Unauthorized' };
+    }
+
+    this.logger.log(
+      `Interview message from user ${client.userId}: mode=${data.mode}`,
+    );
+
+    // Emit that we're processing
+    client.emit('interview:processing', {
+      timestamp: new Date().toISOString(),
+    });
+
+    try {
+      // Import axios dynamically to make the request
+      const axios = await import('axios');
+      const llmServiceUrl =
+        this.configService.get<string>('LLM_SERVICE_URL') ||
+        'http://llm-service:8000';
+      const apiKey = this.configService.get<string>('CORE_API_SECRET') || '';
+
+      const response = await axios.default.post(
+        `${llmServiceUrl}/api/llm/interview/interactive`,
+        {
+          mode: data.mode,
+          persona: data.persona,
+          interview_type: data.interview_type,
+          user_answer: data.user_answer,
+          history: data.history,
+          student_profile: data.student_profile,
+          selected_panelists: data.selected_panelists,
+          is_conclusion: data.is_conclusion,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          timeout: 60000,
+        },
+      );
+
+      // Emit the response
+      client.emit('interview:response', {
+        success: true,
+        data: response.data.data,
+        timestamp: new Date().toISOString(),
+      });
+
+      this.logger.log(`Interview response sent to user ${client.userId}`);
+
+      return { success: true };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Interview error for user ${client.userId}: ${errorMessage}`,
+      );
+
+      client.emit('interview:error', {
+        error: errorMessage,
+        timestamp: new Date().toISOString(),
+      });
+
+      return { error: errorMessage };
+    }
+  }
+
   // Check if user is connected
   isUserConnected(userId: string): boolean {
     return this.connectedClients.has(userId);
