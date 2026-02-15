@@ -553,19 +553,29 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
                   setCaptionText(currentText);
               }
 
-              // Barge-in Check (Grace period 1.5s, min length 3)
-              if (isSpeakingRef.current && (interimTranscript.trim().length > 3) && (Date.now() - speechStartTimeRef.current > 1500)) {
-                  console.log("Barge-in detected");
+              // Barge-in Check (Grace period 3s, min length 10 characters)
+              // This allows the user to interrupt the AI by speaking clearly
+              if (isSpeakingRef.current && (interimTranscript.trim().length > 10) && (Date.now() - speechStartTimeRef.current > 3000)) {
+                  console.log("Barge-in detected - user is speaking");
                   stopSpeaking();
               }
             };
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             recognitionRef.current.onerror = (event: any) => {
-              console.error("Mic Error", event.error);
-              setLastError(`Mic Error: ${event.error}`);
-              if (event.error === 'not-allowed') toast.error("Microphone access denied.");
-              setIsRecording(false);
+              // Only log critical errors, ignore common ones like 'aborted' and 'no-speech'
+              if (event.error === 'not-allowed') {
+                console.error("Mic Error", event.error);
+                setLastError(`Mic Error: ${event.error}`);
+                toast.error("Microphone access denied.");
+                setIsRecording(false);
+              } else if (event.error === 'network') {
+                console.error("Mic Error", event.error);
+                setLastError(`Mic Error: ${event.error}`);
+              } else {
+                // 'aborted', 'no-speech', 'audio-capture' are common and not critical
+                console.log("Speech recognition event:", event.error);
+              }
             };
             
             // Handle recognition end - restart if needed
@@ -574,11 +584,17 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
               // Only restart if we're supposed to be recording and not speaking
               if (isRecordingRef.current && !isSpeakingRef.current) {
                 console.log("Restarting speech recognition...");
-                try {
-                  recognitionRef.current.start();
-                } catch (e) {
-                  console.log("Could not restart recognition:", e);
-                }
+                // Add a small delay to avoid race conditions
+                setTimeout(() => {
+                  if (isRecordingRef.current && !isSpeakingRef.current && recognitionRef.current) {
+                    try {
+                      recognitionRef.current.start();
+                    } catch (e) {
+                      // Ignore - recognition may already be running
+                      console.debug("Recognition restart skipped:", e);
+                    }
+                  }
+                }, 100);
               }
             };
           }
