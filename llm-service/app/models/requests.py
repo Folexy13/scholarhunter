@@ -140,3 +140,22 @@ class FacultyDiscoveryRequest(BaseModel):
     faculty_name: Optional[str] = None
     student_profile: Optional[Dict[str, Any]] = None
 
+
+class InterviewPersonaRequest(BaseModel):
+    """Request model for interactive interview with personas"""
+    mode: str = Field(..., description="START, CONTINUE, FEEDBACK, CONCLUDE")
+    persona: str = Field(..., description="Strict Academic, Friendly Mentor, Industry Recruiter")
+    interview_type: str = Field(..., description="Grad School, Research, General Advice")
+    user_answer: Optional[str] = None
+    history: Optional[List[Dict[str, str]]] = None
+    student_profile: Optional[Dict[str, Any]] = None
+    selected_panelists: Optional[List[Dict[str, str]]] = Field(
+        default=None,
+        description="List of selected panelists with id, name, role, and title"
+    )
+    is_conclusion: bool = Field(
+        default=False,
+        description="Whether this is a conclusion request (5-minute warning)"
+    )
+
+

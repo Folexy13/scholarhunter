@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { MainLayout } from "@/components/layout/main-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { InterviewSession } from "@/components/interview/interview-session";
 import { 
   Video, 
   Calendar, 
@@ -88,8 +90,23 @@ const recentSessions = [
 ];
 
 export default function InterviewPrepPage() {
+  const [isSessionActive, setIsSessionActive] = useState(false);
+  const [selectedPack, setSelectedPack] = useState<typeof scenarioPacks[0] | null>(null);
+
+  const handleStartSession = (pack: typeof scenarioPacks[0] | null = null) => {
+    if (pack) setSelectedPack(pack);
+    setIsSessionActive(true);
+  };
+
   return (
     <MainLayout>
+      {isSessionActive && (
+        <InterviewSession 
+          onClose={() => setIsSessionActive(false)} 
+          interviewType={selectedPack?.name || "General Interview"}
+          persona="friendly_mentor"
+        />
+      )}
       <div className="max-w-6xl mx-auto p-6 lg:p-10 flex flex-col gap-8">
         {/* Hero Section */}
         <Card className="relative overflow-hidden border-2">
@@ -102,7 +119,7 @@ export default function InterviewPrepPage() {
                   Practice with our autonomous AI agent. Get real-time feedback on your tone, 
                   body language, and answer structure based on global scholarship standards.
                 </p>
-                <Button size="lg" className="shadow-xl shadow-primary/30">
+                <Button size="lg" className="shadow-xl shadow-primary/30" onClick={() => handleStartSession()}>
                   <Video className="h-5 w-5 mr-2" />
                   Start AI Mock Interview
                 </Button>
@@ -190,6 +207,7 @@ export default function InterviewPrepPage() {
                   <Card
                     key={pack.id}
                     className="hover:border-primary transition-all cursor-pointer group"
+                    onClick={() => handleStartSession(pack)}
                   >
                     <CardHeader className="pb-4">
                       <div className="flex justify-between items-start mb-4">

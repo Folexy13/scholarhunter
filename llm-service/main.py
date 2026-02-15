@@ -198,7 +198,7 @@ app.include_router(scholarship_matcher.router, prefix="/api/llm", tags=["Scholar
 app.include_router(scholarship_discovery.router, prefix="/api/llm/scholarships", tags=["Scholarship Discovery"])
 app.include_router(document_generator.router, prefix="/api/llm", tags=["Document Generator"])
 app.include_router(chat.router, prefix="/api/llm", tags=["Chat"])
-app.include_router(interview.router, prefix="/api/llm", tags=["Interview Prep"])
+app.include_router(interview.router, prefix="/api/llm/interview", tags=["Interview Prep"])
 app.include_router(faculty.router, prefix="/api/llm/faculty", tags=["Faculty Discovery"])
 
 

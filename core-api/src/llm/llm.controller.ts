@@ -127,4 +127,31 @@ export class LLMController {
       body.student_profile,
     );
   }
+
+  @Post('interview/interactive')
+  async interactiveInterview(
+    @Body()
+    body: {
+      mode: string;
+      persona: string;
+      interview_type: string;
+      user_answer?: string;
+      history?: any[];
+      student_profile?: Record<string, unknown>;
+    },
+  ) {
+    return this.llmService.interactiveInterview(
+      body.mode,
+      body.persona,
+      body.interview_type,
+      body.user_answer,
+      body.history,
+      body.student_profile,
+    );
+  }
+
+  @Post('speech-token')
+  async getSpeechToken() {
+    return this.llmService.getSpeechToken();
+  }
 }

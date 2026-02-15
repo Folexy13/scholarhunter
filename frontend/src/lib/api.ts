@@ -316,6 +316,20 @@ export const aiApi = {
     const response = await apiClient.post('/llm/faculty/discover', data);
     return response.data;
   },
+
+  conductInterview: async (data: {
+    mode: string;
+    persona: string;
+    interview_type: string;
+    user_answer?: string;
+    history?: any[];
+    student_profile?: Record<string, unknown>;
+    selected_panelists?: { id: string; name: string; role: string; title?: string }[];
+    is_conclusion?: boolean;
+  }): Promise<{ success: boolean; data: { speech: string; transcription: string; feedback?: string; is_final: boolean; speaker_id?: string; speaker_name?: string } }> => {
+    const response = await apiClient.post('/llm/interview/interactive', data);
+    return response.data;
+  },
 };
 
 export default {

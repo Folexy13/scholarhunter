@@ -5,7 +5,7 @@ Handles all interactions with Google Gemini 3.0 API
 
 import logging
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import google.generativeai as genai
 
 from app.core.config import settings
@@ -18,8 +18,18 @@ logger = logging.getLogger(__name__)
 class GeminiService:
     """Service for interacting with Google Gemini AI"""
     
+    # Fallback models in order of preference (Gemini 3 and 2.5 models)
+    FALLBACK_MODELS = [
+        "gemini-3-flash-preview",
+        "gemini-3-pro-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.0-flash",
+    ]
+    
     def __init__(self):
         self.model = None
+        self.current_model_name = None
         self.yaml_loader = YAMLInstructionLoader()
         self._initialized = False
     
@@ -30,14 +40,43 @@ class GeminiService:
             genai.configure(api_key=settings.GEMINI_API_KEY)
             
             # Initialize model
-            self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+            self.current_model_name = settings.GEMINI_MODEL
+            self.model = genai.GenerativeModel(self.current_model_name)
             
             self._initialized = True
-            logger.info(f"Gemini AI initialized successfully with model: {settings.GEMINI_MODEL}")
+            logger.info(f"Gemini AI initialized successfully with model: {self.current_model_name}")
             
         except Exception as e:
             logger.error(f"Failed to initialize Gemini AI: {e}", exc_info=True)
             raise
+    
+    def _switch_to_fallback_model(self, failed_model: str) -> bool:
+        """
+        Switch to a fallback model when the current one fails.
+        Returns True if successfully switched, False if no more fallbacks available.
+        """
+        try:
+            # Find the next available model
+            current_index = -1
+            if failed_model in self.FALLBACK_MODELS:
+                current_index = self.FALLBACK_MODELS.index(failed_model)
+            
+            # Try the next model in the list
+            for i in range(current_index + 1, len(self.FALLBACK_MODELS)):
+                next_model = self.FALLBACK_MODELS[i]
+                try:
+                    self.model = genai.GenerativeModel(next_model)
+                    self.current_model_name = next_model
+                    logger.warning(f"Switched to fallback model: {next_model}")
+                    return True
+                except Exception as e:
+                    logger.warning(f"Failed to initialize fallback model {next_model}: {e}")
+                    continue
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error switching to fallback model: {e}")
+            return False
     
     async def cleanup(self):
         """Cleanup resources"""
@@ -519,6 +558,82 @@ Generate a compelling {document_type} and return as JSON:
             logger.error(f"Error in streaming document generation: {e}", exc_info=True)
             raise
 
+    async def conduct_interview(
+        self,
+        mode: str,
+        persona: str,
+        interview_type: str,
+        user_answer: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None,
+        student_profile: Optional[Dict[str, Any]] = None,
+        selected_panelists: Optional[List[Dict[str, str]]] = None,
+        is_conclusion: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Conduct an interactive interview session with a panel of interviewers
+        """
+        self._ensure_initialized()
+        
+        try:
+            # Load instructions
+            instructions = self.yaml_loader.load_instruction("interview_persona")
+            
+            # Build prompt
+            prompt = instructions['system_prompt'].format(
+                mode=mode,
+                persona=persona,
+                interview_type=interview_type
+            )
+            
+            # Add selected panelists information
+            if selected_panelists:
+                prompt += "\n\nSELECTED PANELISTS FOR THIS INTERVIEW (ONLY use these panelists):\n"
+                for panelist in selected_panelists:
+                    prompt += f"- {panelist.get('id')}: {panelist.get('name')} ({panelist.get('role')}) - {panelist.get('title', '')}\n"
+                prompt += "\nIMPORTANT: Only introduce and use the panelists listed above. Do NOT mention or introduce any other panelists."
+            
+            if student_profile:
+                prompt += f"\n\nSTUDENT PROFILE:\n{json.dumps(student_profile, indent=2)}"
+            
+            if history:
+                prompt += "\n\nCONVERSATION HISTORY:\n"
+                for h in history:
+                    prompt += f"{h.get('role', 'user').upper()}: {h.get('content', '')}\n"
+            
+            if user_answer:
+                prompt += f"\n\nSTUDENT'S LATEST ANSWER: {user_answer}"
+            
+            # Add conclusion instructions if this is a 5-minute warning
+            if is_conclusion:
+                prompt += """
+
+IMPORTANT - TIME WARNING: The interview time is almost up (5 minutes remaining).
+You MUST now conclude the interview. Your response should:
+1. Acknowledge that time is running low
+2. Summarize the key points discussed during the interview
+3. Provide constructive feedback and advice to the candidate based on their responses
+4. Thank the candidate for their time
+5. Wrap up the session professionally
+
+This is the final response - make it meaningful and helpful for the candidate."""
+            
+            prompt += "\n\nResponse (JSON):"
+            
+            # Generate response
+            response = await self._generate_content(
+                prompt=prompt,
+                temperature=instructions.get("temperature", 0.7),
+                max_tokens=instructions.get("max_tokens", 2048),
+            )
+            
+            # Parse JSON response
+            result = self._parse_json_response(response)
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in interview persona: {e}", exc_info=True)
+            raise
+
     async def _generate_content(
         self,
         prompt: Any,
@@ -526,7 +641,7 @@ Generate a compelling {document_type} and return as JSON:
         max_tokens: int = 2048
     ) -> str:
         """
-        Generate content using Gemini AI
+        Generate content using Gemini AI with automatic model fallback
         
         Args:
             prompt: The prompt to send to Gemini (string or list of parts)
@@ -536,29 +651,53 @@ Generate a compelling {document_type} and return as JSON:
         Returns:
             Generated text response
         """
-        try:
-            # Configure generation
-            generation_config = genai.types.GenerationConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-                candidate_count=1,
-            )
-            
-            # Generate content
-            response = self.model.generate_content(
-                prompt,
-                generation_config=generation_config,
-            )
-            
-            # Extract text
-            if response.candidates:
-                return response.candidates[0].content.parts[0].text
-            else:
-                raise ValueError("No response generated from Gemini")
+        max_retries = len(self.FALLBACK_MODELS)
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                # Configure generation
+                generation_config = genai.types.GenerationConfig(
+                    temperature=temperature,
+                    max_output_tokens=max_tokens,
+                    candidate_count=1,
+                )
                 
-        except Exception as e:
-            logger.error(f"Error generating content: {e}", exc_info=True)
-            raise
+                # Generate content
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=generation_config,
+                )
+                
+                # Extract text
+                if response.candidates:
+                    return response.candidates[0].content.parts[0].text
+                else:
+                    raise ValueError("No response generated from Gemini")
+                    
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
+                
+                # Check if this is a timeout or model availability error
+                if "deadline" in error_str or "timeout" in error_str or "504" in error_str or "unavailable" in error_str:
+                    logger.warning(f"Model {self.current_model_name} failed with timeout/availability error: {e}")
+                    
+                    # Try to switch to a fallback model
+                    if self._switch_to_fallback_model(self.current_model_name):
+                        logger.info(f"Retrying with fallback model: {self.current_model_name}")
+                        continue
+                    else:
+                        logger.error("No more fallback models available")
+                        break
+                else:
+                    # For other errors, don't retry with fallback
+                    logger.error(f"Error generating content: {e}", exc_info=True)
+                    raise
+        
+        # If we get here, all retries failed
+        logger.error(f"All model attempts failed. Last error: {last_error}")
+        raise last_error if last_error else ValueError("Failed to generate content")
     
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """

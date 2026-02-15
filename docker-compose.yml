@@ -62,6 +62,9 @@ services:
       context: ./llm-service
       dockerfile: Dockerfile
     container_name: scholarhunter-llm
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       SERVICE_PORT: 8000
@@ -91,6 +94,9 @@ services:
       context: ./core-api
       dockerfile: Dockerfile
     container_name: scholarhunter-core-api
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
@@ -103,6 +109,8 @@ services:
       LLM_SERVICE_URL: http://llm-service:8000
       LLM_SERVICE_SECRET: ${CORE_API_SECRET}
       FRONTEND_URL: http://frontend:3001
+      AZURE_SPEECH_KEY: ${AZURE_SPEECH_KEY}
+      AZURE_SPEECH_REGION: ${AZURE_SPEECH_REGION}
     ports:
       - "${CORE_API_PORT:-3000}:3000"
     depends_on:
