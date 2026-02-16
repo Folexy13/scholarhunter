@@ -641,7 +641,7 @@ This is the final response - make it meaningful and helpful for the candidate.""
         max_tokens: int = 2048
     ) -> str:
         """
-        Generate content using Gemini AI with automatic model fallback
+        Generate content using Gemini AI with automatic model fallback and rate limit handling
         
         Args:
             prompt: The prompt to send to Gemini (string or list of parts)
@@ -651,7 +651,11 @@ This is the final response - make it meaningful and helpful for the candidate.""
         Returns:
             Generated text response
         """
-        max_retries = len(self.FALLBACK_MODELS)
+        import asyncio
+        
+        max_retries = len(self.FALLBACK_MODELS) + 3  # Extra retries for rate limiting
+        rate_limit_retries = 0
+        max_rate_limit_retries = 5
         last_error = None
         
         for attempt in range(max_retries):
@@ -679,8 +683,21 @@ This is the final response - make it meaningful and helpful for the candidate.""
                 last_error = e
                 error_str = str(e).lower()
                 
+                # Check if this is a rate limit error (429)
+                if "429" in error_str or "rate" in error_str or "quota" in error_str or "resource_exhausted" in error_str:
+                    rate_limit_retries += 1
+                    if rate_limit_retries <= max_rate_limit_retries:
+                        # Exponential backoff: 2^retry * 1 second (2s, 4s, 8s, 16s, 32s)
+                        wait_time = min(2 ** rate_limit_retries, 60)  # Cap at 60 seconds
+                        logger.warning(f"Rate limit hit (attempt {rate_limit_retries}/{max_rate_limit_retries}). Waiting {wait_time}s before retry...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"Rate limit exceeded after {max_rate_limit_retries} retries")
+                        raise ValueError(f"Rate limit exceeded. Please try again later. Original error: {e}")
+                
                 # Check if this is a timeout or model availability error
-                if "deadline" in error_str or "timeout" in error_str or "504" in error_str or "unavailable" in error_str:
+                elif "deadline" in error_str or "timeout" in error_str or "504" in error_str or "unavailable" in error_str:
                     logger.warning(f"Model {self.current_model_name} failed with timeout/availability error: {e}")
                     
                     # Try to switch to a fallback model
