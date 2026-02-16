@@ -415,18 +415,49 @@ export class NotificationsGateway
 
       return { success: true };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
+      // Extract detailed error information from axios errors
+      let errorMessage = 'Unknown error';
+      let errorDetails: Record<string, unknown> = {};
+
+      if (error && typeof error === 'object') {
+        const axiosError = error as {
+          response?: {
+            status?: number;
+            data?: unknown;
+            statusText?: string;
+          };
+          message?: string;
+          code?: string;
+        };
+
+        if (axiosError.response) {
+          // The request was made and the server responded with a status code
+          errorMessage = `LLM Service Error (${axiosError.response.status}): ${axiosError.response.statusText || 'Unknown'}`;
+          errorDetails = {
+            status: axiosError.response.status,
+            statusText: axiosError.response.statusText,
+            data: axiosError.response.data,
+          };
+        } else if (axiosError.message) {
+          errorMessage = axiosError.message;
+          if (axiosError.code) {
+            errorDetails.code = axiosError.code;
+          }
+        }
+      }
+
       this.logger.error(
         `Interview error for user ${client.userId}: ${errorMessage}`,
+        errorDetails,
       );
 
       client.emit('interview:error', {
         error: errorMessage,
+        details: errorDetails,
         timestamp: new Date().toISOString(),
       });
 
-      return { error: errorMessage };
+      return { error: errorMessage, details: errorDetails };
     }
   }
 
