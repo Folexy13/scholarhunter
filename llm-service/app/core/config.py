@@ -81,8 +81,20 @@ class Settings(BaseSettings):
     
     @property
     def allowed_hosts_list(self) -> List[str]:
-        """Get ALLOWED_HOSTS as a list"""
-        return [host.strip() for host in self.ALLOWED_HOSTS.split(",")]
+        """Get ALLOWED_HOSTS as a list, stripping protocol prefixes"""
+        hosts = []
+        for host in self.ALLOWED_HOSTS.split(","):
+            host = host.strip()
+            # Strip protocol prefixes (https://, http://)
+            if host.startswith("https://"):
+                host = host[8:]
+            elif host.startswith("http://"):
+                host = host[7:]
+            # Strip trailing slashes and paths
+            host = host.split("/")[0]
+            if host:
+                hosts.append(host)
+        return hosts
     
     @property
     def cors_origins_list(self) -> List[str]:
