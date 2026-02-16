@@ -71,10 +71,12 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Security Middleware
 # OWASP: Security Misconfiguration
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=settings.allowed_hosts_list,
-)
+# Only add TrustedHostMiddleware if specific hosts are configured (not "*")
+if settings.ALLOWED_HOSTS != "*":
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=settings.allowed_hosts_list,
+    )
 
 # OWASP: Cross-Site Scripting (XSS) & CORS
 app.add_middleware(
