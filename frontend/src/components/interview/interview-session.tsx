@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Volume2, VolumeX, Play, PhoneOff, Mic, MicOff, MoreVertical, Check, Settings, MessageSquare, AlertCircle, Timer, ShieldAlert } from "lucide-react";
+import { Volume2, VolumeX, Play, PhoneOff, Mic, MicOff, MoreVertical, Check, Settings, MessageSquare, AlertCircle, Timer, ShieldAlert, Send } from "lucide-react";
 import { aiApi } from "@/lib/api";
 import { toast } from "react-hot-toast";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -88,6 +88,13 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
   const [hasWarned5Min, setHasWarned5Min] = useState(false);
   const [isTimeUp, setIsTimeUp] = useState(false);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Auto-send silence detection
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSpeechTimeRef = useRef<number>(0);
+  
+  // Flag to track intentional audio stop (barge-in) vs actual error
+  const isIntentionalStopRef = useRef<boolean>(false);
   
   // Confirmation Modal State
   const [showEndConfirmation, setShowEndConfirmation] = useState(false);
@@ -195,16 +202,29 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
 
     const handleInterviewProcessing = () => {
       console.log("WebSocket interview:processing - AI is thinking...");
+      // Show a "thinking" indicator
+      setStreamedResponse("...");
+    };
+
+    const handleInterviewChunk = (data: { chunk: string; timestamp: string }) => {
+      // Append chunk to streamed response for real-time display
+      setStreamedResponse(prev => {
+        // Remove the "..." thinking indicator if present
+        const cleaned = prev === "..." ? "" : prev;
+        return cleaned + data.chunk;
+      });
     };
 
     on('interview:response', handleInterviewResponse);
     on('interview:error', handleInterviewError);
     on('interview:processing', handleInterviewProcessing);
+    on('interview:chunk', handleInterviewChunk);
 
     return () => {
       off('interview:response', handleInterviewResponse);
       off('interview:error', handleInterviewError);
       off('interview:processing', handleInterviewProcessing);
+      off('interview:chunk', handleInterviewChunk);
     };
   }, [useWebSocketMode, on, off]);
 
@@ -284,6 +304,26 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
     };
   }, [hasStarted, isTimeUp]);
 
+  // Auto-send event listener
+  useEffect(() => {
+    const handleAutoSend = () => {
+      if (transcript.trim() && !isSpeaking && !isLoading) {
+        console.log("Auto-send triggered via event");
+        handleSendResponse();
+      }
+    };
+    
+    window.addEventListener('interview-auto-send', handleAutoSend);
+    
+    return () => {
+      window.removeEventListener('interview-auto-send', handleAutoSend);
+      // Clear silence timer on unmount
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
+    };
+  }, [transcript, isSpeaking, isLoading]);
+
   // 5-minute warning effect - trigger AI to conclude
   useEffect(() => {
     if (hasStarted && timeRemaining <= 300 && timeRemaining > 0 && !hasWarned5Min && !isSpeakingRef.current && !isLoading) {
@@ -336,7 +376,17 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
       }
 
       if (response.success && response.data) {
-        const aiMessage = response.data.speech as string;
+        // Handle both direct speech field and nested transcription field
+        const aiMessage = (response.data.speech as string) || (response.data.transcription as string) || "";
+        
+        if (!aiMessage) {
+          console.error("No speech content in conclusion response:", response.data);
+          setLastError("AI conclusion response missing speech content");
+          setIsLoading(false);
+          startRecording();
+          return;
+        }
+        
         const speakerId = (response.data.speaker_id as string) || selectedInterviewers[0] || "sarah";
         const speakerName = (response.data.speaker_name as string) || INTERVIEWERS.find(i => i.id === speakerId)?.name || "AI";
         
@@ -449,6 +499,9 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
 
   const stopSpeaking = useCallback((shouldRestartRecording: boolean = true) => {
     try {
+        // Set flag to indicate this is an intentional stop (not an error)
+        isIntentionalStopRef.current = true;
+        
         // Cancel native speech synthesis
         if (synthesisRef.current) {
             synthesisRef.current.cancel();
@@ -489,6 +542,11 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
         setIsSpeaking(false);
         setIsLoading(false);
         setCaptionText("");
+        
+        // Reset the intentional stop flag after a short delay
+        setTimeout(() => {
+            isIntentionalStopRef.current = false;
+        }, 100);
         
         // Start recording after a short delay (only if requested)
         if (shouldRestartRecording) {
@@ -539,9 +597,11 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             recognitionRef.current.onresult = (event: any) => {
               let interimTranscript = "";
+              let hasFinalResult = false;
               for (let i = event.resultIndex; i < event.results.length; ++i) {
                 if (event.results[i].isFinal) {
                   setTranscript((prev) => prev + " " + event.results[i][0].transcript);
+                  hasFinalResult = true;
                 } else {
                   interimTranscript += event.results[i][0].transcript;
                 }
@@ -551,6 +611,31 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
               if (currentText.trim()) {
                   setCaptionSpeaker("You");
                   setCaptionText(currentText);
+              }
+              
+              // Track last speech time for auto-send
+              lastSpeechTimeRef.current = Date.now();
+              
+              // Clear existing silence timer
+              if (silenceTimerRef.current) {
+                clearTimeout(silenceTimerRef.current);
+                silenceTimerRef.current = null;
+              }
+              
+              // Start silence detection timer after final result (auto-send after 1 second of silence)
+              if (hasFinalResult) {
+                silenceTimerRef.current = setTimeout(() => {
+                  // Check if we have transcript and not currently speaking/loading
+                  setTranscript((currentTranscript) => {
+                    if (currentTranscript.trim() && !isSpeakingRef.current && !isLoading) {
+                      console.log("Auto-sending after silence detected, transcript:", currentTranscript.trim().substring(0, 50) + "...");
+                      // Trigger send - we need to call handleSendResponse
+                      // Use a custom event to trigger the send
+                      window.dispatchEvent(new CustomEvent('interview-auto-send'));
+                    }
+                    return currentTranscript;
+                  });
+                }, 1000); // 1 second of silence for faster response
               }
 
               // Barge-in Check (Grace period 3s, min length 10 characters)
@@ -613,7 +698,7 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
       if (synthesisRef.current) {
         try { synthesisRef.current.cancel(); } catch { /* ignore */ }
       }
-      if (audioContextRef.current) {
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         try { audioContextRef.current.close(); } catch { /* ignore */ }
       }
       if (azureSynthesizerRef.current) {
@@ -855,7 +940,16 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
       }
 
       if (response.success && response.data) {
-        const aiMessage = response.data.speech as string;
+        // Handle both direct speech field and nested transcription field
+        const aiMessage = (response.data.speech as string) || (response.data.transcription as string) || "";
+        
+        if (!aiMessage) {
+          console.error("No speech content in response:", response.data);
+          setLastError("AI response missing speech content");
+          setIsLoading(false);
+          return;
+        }
+        
         addMessage("assistant", aiMessage);
         
         // Use speaker_id from AI response, fallback to first selected interviewer
@@ -871,6 +965,10 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
         } else {
             speakNative(aiMessage, speakerId);
         }
+      } else {
+        console.error("Interview response failed or missing data:", response);
+        setLastError("Failed to get interview response");
+        setIsLoading(false);
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -952,7 +1050,17 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
       }
 
       if (response.success && response.data) {
-        const aiMessage = response.data.speech as string;
+        // Handle both direct speech field and nested transcription field
+        const aiMessage = (response.data.speech as string) || (response.data.transcription as string) || "";
+        
+        if (!aiMessage) {
+          console.error("No speech content in response:", response.data);
+          setLastError("AI response missing speech content");
+          setIsLoading(false);
+          startRecording();
+          return;
+        }
+        
         addMessage("assistant", aiMessage);
         
         // Use speaker_id from AI response, but VALIDATE it's one of the selected panelists
@@ -982,6 +1090,11 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
         } else {
             speakNative(aiMessage, speakerId);
         }
+      } else {
+        console.error("Interview response failed or missing data:", response);
+        setLastError("Failed to get interview response");
+        setIsLoading(false);
+        startRecording();
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -993,7 +1106,16 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
 
   // Subtitle-style caption display - shows words one by one
   const startSubtitleCaption = (text: string, speakerName: string, durationMs: number) => {
+      // Guard against undefined or empty text
+      if (!text || typeof text !== 'string') {
+          console.warn("startSubtitleCaption called with invalid text:", text);
+          return null;
+      }
       const words = text.split(' ');
+      if (words.length === 0) {
+          console.warn("startSubtitleCaption called with empty text");
+          return null;
+      }
       const wordDuration = durationMs / words.length;
       let currentIndex = 0;
       
@@ -1016,8 +1138,15 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
   };
 
   const speakAzure = (text: string, speakerId: string, directToken?: string, directRegion?: string): Promise<void> => {
-      return new Promise((resolve) => {
-          console.log("speakAzure called with:", { speakerId, textLength: text.length, hasDirectToken: !!directToken });
+      return new Promise(async (resolve) => {
+          console.log("speakAzure called with:", { speakerId, textLength: text?.length, hasDirectToken: !!directToken });
+          
+          // Guard against undefined text
+          if (!text || typeof text !== 'string') {
+              console.warn("speakAzure called with invalid text:", text);
+              resolve();
+              return;
+          }
           
           const interviewer = INTERVIEWERS.find(i => i.id === speakerId);
           const speakerName = interviewer?.name || "AI";
@@ -1042,109 +1171,169 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
           isSpeakingRef.current = true;
           setIsSpeaking(true);
           speechStartTimeRef.current = Date.now();
-
-          // Use REST API for more reliable audio playback
-          const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
-              <voice name='${voiceName}'>${text}</voice>
-          </speak>`;
-
-          console.log("Calling Azure TTS REST API...");
           
-          fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
-              method: 'POST',
-              headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/ssml+xml',
-                  'X-Microsoft-OutputFormat': 'audio-16khz-128kbitrate-mono-mp3',
-                  'User-Agent': 'Scholastica-Interview'
-              },
-              body: ssml
-          })
-          .then(response => {
-              if (!response.ok) {
-                  throw new Error(`Azure TTS API error: ${response.status} ${response.statusText}`);
+          // Start showing captions immediately (estimate ~150 words per minute = 400ms per word)
+          const estimatedDurationMs = text.split(' ').length * 400;
+          setCaptionSpeaker(speakerName);
+          setCaptionText("");
+          const captionInterval = startSubtitleCaption(text, speakerName, estimatedDurationMs);
+          captionIntervalRef.current = captionInterval;
+
+          // Track if we've already handled completion
+          let hasCompleted = false;
+          
+          const handleCompletion = () => {
+              if (hasCompleted) return;
+              hasCompleted = true;
+              
+              console.log("Audio playback completed, cleaning up");
+              
+              if (captionIntervalRef.current) {
+                  clearInterval(captionIntervalRef.current);
+                  captionIntervalRef.current = null;
               }
-              return response.blob();
-          })
-          .then(blob => {
-              console.log("Azure TTS response received, blob size:", blob.size);
-              const audioUrl = URL.createObjectURL(blob);
-              const audio = new Audio(audioUrl);
               
-              // Store reference to audio element so we can stop it later
-              audioElementRef.current = audio;
-              
-              // Estimate duration based on text length (roughly 150 words per minute)
-              const wordCount = text.split(' ').length;
-              const estimatedDurationMs = (wordCount / 150) * 60 * 1000;
-              
-              // Start subtitle-style caption and store the interval
-              const captionInterval = startSubtitleCaption(text, speakerName, estimatedDurationMs);
-              captionIntervalRef.current = captionInterval;
-              
-              audio.onended = () => {
-                  console.log("Audio playback completed");
-                  URL.revokeObjectURL(audioUrl);
-                  if (captionIntervalRef.current) {
-                      clearInterval(captionIntervalRef.current);
-                      captionIntervalRef.current = null;
-                  }
-                  audioElementRef.current = null;
-                  
-                  // Update ref immediately before state
-                  isSpeakingRef.current = false;
-                  setIsSpeaking(false);
-                  setIsLoading(false);
-                  setCaptionText("");
-                  
-                  // Start recording after speech completes
-                  console.log("Audio ended, starting recording in 300ms...");
-                  setTimeout(() => {
-                      console.log("Attempting to start recording now, isSpeakingRef:", isSpeakingRef.current);
-                      startRecording();
-                  }, 300);
-              };
-              
-              audio.onerror = (e) => {
-                  console.error("Audio playback error:", e);
-                  URL.revokeObjectURL(audioUrl);
-                  if (captionIntervalRef.current) {
-                      clearInterval(captionIntervalRef.current);
-                      captionIntervalRef.current = null;
-                  }
-                  audioElementRef.current = null;
-                  isSpeakingRef.current = false;
-                  setIsSpeaking(false);
-                  setIsLoading(false);
-                  setCaptionText("");
-                  // Fallback to native speech
-                  speakNative(text, speakerId);
-              };
-              
-              audio.play().then(() => {
-                  console.log("Audio playback started successfully");
-              }).catch(e => {
-                  console.error("Failed to play audio:", e);
-                  clearInterval(captionInterval);
-                  isSpeakingRef.current = false;
-                  setIsSpeaking(false);
-                  setIsLoading(false);
-                  // Fallback to native speech
-                  speakNative(text, speakerId);
-              });
-              
-              resolve();
-          })
-          .catch(error => {
-              console.error("Azure TTS REST API error:", error);
-              setLastError(`Azure TTS Error: ${error.message}`);
               isSpeakingRef.current = false;
               setIsSpeaking(false);
               setIsLoading(false);
+              setCaptionText("");
+              
+              // Start recording after a short delay to ensure audio has fully stopped
+              console.log("Audio playback ended, starting recording in 500ms...");
+              setTimeout(() => {
+                  console.log("Attempting to start recording now, isSpeakingRef:", isSpeakingRef.current);
+                  startRecording();
+              }, 500);
+              
+              resolve();
+          };
+
+          try {
+              // Use Azure REST API instead of SDK for more reliable synthesis
+              // This avoids WebSocket state issues that occur with the SDK
+              const endpoint = `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`;
+              
+              // Build SSML for the request
+              const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
+                  <voice name='${voiceName}'>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</voice>
+              </speak>`;
+              
+              console.log("Starting Azure REST API synthesis for", text.split(' ').length, "words");
+              
+              // Create an AbortController for timeout
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => {
+                  controller.abort();
+              }, 15000); // 15 second timeout
+              
+              // Store controller reference so we can abort on barge-in
+              azureSynthesizerRef.current = { abort: () => controller.abort() };
+              
+              const response = await fetch(endpoint, {
+                  method: 'POST',
+                  headers: {
+                      'Authorization': `Bearer ${token}`,
+                      'Content-Type': 'application/ssml+xml',
+                      'X-Microsoft-OutputFormat': 'audio-16khz-128kbitrate-mono-mp3',
+                      'User-Agent': 'ScholarHunter'
+                  },
+                  body: ssml,
+                  signal: controller.signal
+              });
+              
+              clearTimeout(timeoutId);
+              
+              if (!response.ok) {
+                  throw new Error(`Azure TTS API error: ${response.status} ${response.statusText}`);
+              }
+              
+              console.log("Azure REST API synthesis completed, getting audio data");
+              
+              const audioData = await response.arrayBuffer();
+              console.log("Audio data received, length:", audioData.byteLength);
+              
+              // Create a blob from the audio data and play it
+              const audioBlob = new Blob([audioData], { type: 'audio/mp3' });
+              const audioUrl = URL.createObjectURL(audioBlob);
+              
+              // Create or reuse audio element
+              if (!audioElementRef.current) {
+                  audioElementRef.current = new Audio();
+              }
+              
+              const audio = audioElementRef.current;
+              audio.src = audioUrl;
+              audio.volume = isMuted ? 0 : 1;
+              
+              // Handle audio end
+              audio.onended = () => {
+                  console.log("Audio playback ended");
+                  URL.revokeObjectURL(audioUrl);
+                  azureSynthesizerRef.current = null;
+                  handleCompletion();
+              };
+              
+              audio.onerror = (e) => {
+                  // Check if this was an intentional stop (barge-in)
+                  if (isIntentionalStopRef.current) {
+                      console.log("Audio stopped intentionally (barge-in), not an error");
+                      URL.revokeObjectURL(audioUrl);
+                      return; // Don't do anything, stopSpeaking already handled cleanup
+                  }
+                  
+                  console.error("Audio playback error:", e);
+                  URL.revokeObjectURL(audioUrl);
+                  azureSynthesizerRef.current = null;
+                  // Fallback to native speech on actual error (not barge-in)
+                  speakNative(text, speakerId);
+                  handleCompletion();
+              };
+              
+              // Update captions to use actual audio duration once loaded
+              audio.onloadedmetadata = () => {
+                  const actualDurationMs = audio.duration * 1000;
+                  console.log("Actual audio duration:", actualDurationMs, "ms");
+                  // Restart captions with actual duration
+                  if (captionIntervalRef.current) {
+                      clearInterval(captionIntervalRef.current);
+                  }
+                  const newCaptionInterval = startSubtitleCaption(text, speakerName, actualDurationMs);
+                  captionIntervalRef.current = newCaptionInterval;
+              };
+              
+              // Start playing
+              audio.play().then(() => {
+                  console.log("Audio playback started successfully");
+              }).catch((e) => {
+                  // Check if this was an intentional stop (barge-in)
+                  if (isIntentionalStopRef.current) {
+                      console.log("Audio play interrupted (barge-in), not an error");
+                      return;
+                  }
+                  console.error("Failed to play audio:", e);
+                  // Fallback to native speech on actual error
+                  speakNative(text, speakerId);
+                  handleCompletion();
+              });
+              
+          } catch (error) {
+              // Check if this was an abort (timeout or barge-in)
+              if (error instanceof Error && error.name === 'AbortError') {
+                  if (isIntentionalStopRef.current) {
+                      console.log("Azure synthesis aborted (barge-in)");
+                      return;
+                  }
+                  console.warn("Azure synthesis timed out after 15 seconds, falling back to native speech");
+              } else {
+                  console.error("Azure REST API error:", error);
+                  setLastError(`Azure TTS Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+              }
+              
+              azureSynthesizerRef.current = null;
               // Fallback to native speech
               speakNative(text, speakerId);
-              resolve();
-          });
+              handleCompletion();
+          }
       });
   };
 
@@ -1480,11 +1669,25 @@ export function InterviewSession({ onClose, interviewType, persona }: InterviewS
         </Sheet>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black via-black/80 to-transparent flex items-center justify-center gap-6 pb-4 z-20">
+      <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black via-black/80 to-transparent flex items-center justify-center gap-4 pb-4 z-20">
          <div className={`p-4 rounded-full transition-all duration-500 ${isRecording ? "bg-red-500/20 border border-red-500/50 scale-110" : "bg-white/5 border border-white/10"}`}>
              {isRecording ? <Mic className="h-6 w-6 text-red-500 animate-pulse" /> : <MicOff className="h-6 w-6 text-white/30" />}
          </div>
-         <Button variant="destructive" size="lg" className="rounded-full px-8 h-12 shadow-lg shadow-red-900/20 hover:bg-red-600" onClick={handleEndInterview}><PhoneOff className="mr-2 h-5 w-5" /> End Interview</Button>
+         {/* Send button - visible when there's transcript and not speaking */}
+         <Button 
+           variant="default" 
+           size="lg" 
+           className={`rounded-full px-6 h-12 shadow-lg transition-all duration-300 ${
+             transcript.trim() && !isSpeaking && !isLoading 
+               ? "bg-green-600 hover:bg-green-700 scale-100 opacity-100" 
+               : "bg-green-600/30 scale-95 opacity-50 cursor-not-allowed"
+           }`}
+           onClick={handleSendResponse}
+           disabled={!transcript.trim() || isSpeaking || isLoading}
+         >
+           <Send className="mr-2 h-5 w-5" /> Send Response
+         </Button>
+         <Button variant="destructive" size="lg" className="rounded-full px-6 h-12 shadow-lg shadow-red-900/20 hover:bg-red-600" onClick={handleEndInterview}><PhoneOff className="mr-2 h-5 w-5" /> End</Button>
          <Button variant="secondary" size="icon" className="rounded-full bg-white/10 hover:bg-white/20 text-white border border-white/5"><MoreVertical className="h-5 w-5" /></Button>
       </div>
     </div>

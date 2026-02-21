@@ -383,8 +383,9 @@ export class NotificationsGateway
         'http://llm-service:8000';
       const apiKey = this.configService.get<string>('CORE_API_SECRET') || '';
 
+      // Use streaming endpoint for faster response
       const response = await axios.default.post(
-        `${llmServiceUrl}/api/llm/interview/interactive`,
+        `${llmServiceUrl}/api/llm/interview/interactive/stream`,
         {
           mode: data.mode,
           persona: data.persona,
@@ -401,17 +402,91 @@ export class NotificationsGateway
             Authorization: `Bearer ${apiKey}`,
           },
           timeout: 60000,
+          responseType: 'stream',
         },
       );
 
-      // Emit the response
-      client.emit('interview:response', {
-        success: true,
-        data: response.data.data,
-        timestamp: new Date().toISOString(),
+      // Process the SSE stream
+      let fullResponse = '';
+      let finalData: Record<string, unknown> | null = null;
+
+      // Handle the stream
+      await new Promise<void>((resolve, reject) => {
+        response.data.on('data', (chunk: Buffer) => {
+          const lines = chunk.toString().split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonStr = line.slice(6).trim();
+                if (jsonStr) {
+                  const parsed = JSON.parse(jsonStr);
+
+                  if (parsed.chunk) {
+                    fullResponse += parsed.chunk;
+                    // Emit chunk to client for real-time display
+                    client.emit('interview:chunk', {
+                      chunk: parsed.chunk,
+                      timestamp: new Date().toISOString(),
+                    });
+                  }
+
+                  if (parsed.done) {
+                    if (parsed.data) {
+                      finalData = parsed.data;
+                    } else if (parsed.error) {
+                      this.logger.error(
+                        `Stream parsing error: ${parsed.error}`,
+                      );
+                    }
+                  }
+                }
+              } catch (parseError) {
+                // Ignore parse errors for incomplete chunks
+              }
+            }
+          }
+        });
+
+        response.data.on('end', () => {
+          resolve();
+        });
+
+        response.data.on('error', (err: Error) => {
+          reject(err);
+        });
       });
 
-      this.logger.log(`Interview response sent to user ${client.userId}`);
+      // Emit the final response
+      if (finalData) {
+        // Log the data being sent for debugging
+        this.logger.log(`Interview finalData keys: ${Object.keys(finalData).join(', ')}`);
+        if (!(finalData as any).speech && !(finalData as any).transcription) {
+          this.logger.warn(`Interview response missing speech/transcription: ${JSON.stringify(finalData).substring(0, 200)}`);
+        }
+        
+        client.emit('interview:response', {
+          success: true,
+          data: finalData,
+          timestamp: new Date().toISOString(),
+        });
+        this.logger.log(`Interview response sent to user ${client.userId}`);
+      } else {
+        // Fallback: try to parse the full response
+        try {
+          const parsed = JSON.parse(fullResponse);
+          client.emit('interview:response', {
+            success: true,
+            data: parsed,
+            timestamp: new Date().toISOString(),
+          });
+        } catch {
+          client.emit('interview:error', {
+            error: 'Failed to parse interview response',
+            raw: fullResponse,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
 
       return { success: true };
     } catch (error) {

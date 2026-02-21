@@ -634,6 +634,91 @@ This is the final response - make it meaningful and helpful for the candidate.""
             logger.error(f"Error in interview persona: {e}", exc_info=True)
             raise
 
+    async def conduct_interview_stream(
+        self,
+        mode: str,
+        persona: str,
+        interview_type: str,
+        user_answer: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None,
+        student_profile: Optional[Dict[str, Any]] = None,
+        selected_panelists: Optional[List[Dict[str, str]]] = None,
+        is_conclusion: bool = False
+    ):
+        """
+        Conduct an interactive interview session with streaming response.
+        Yields chunks as they arrive from Gemini for faster perceived response time.
+        """
+        self._ensure_initialized()
+        
+        try:
+            # Load instructions
+            instructions = self.yaml_loader.load_instruction("interview_persona")
+            
+            # Build prompt (same as non-streaming version)
+            prompt = instructions['system_prompt'].format(
+                mode=mode,
+                persona=persona,
+                interview_type=interview_type
+            )
+            
+            if selected_panelists:
+                prompt += "\n\nSELECTED PANELISTS FOR THIS INTERVIEW (ONLY use these panelists):\n"
+                for panelist in selected_panelists:
+                    prompt += f"- {panelist.get('id')}: {panelist.get('name')} ({panelist.get('role')}) - {panelist.get('title', '')}\n"
+                prompt += "\nIMPORTANT: Only introduce and use the panelists listed above. Do NOT mention or introduce any other panelists."
+            
+            if student_profile:
+                prompt += f"\n\nSTUDENT PROFILE:\n{json.dumps(student_profile, indent=2)}"
+            
+            if history:
+                prompt += "\n\nCONVERSATION HISTORY:\n"
+                for h in history:
+                    prompt += f"{h.get('role', 'user').upper()}: {h.get('content', '')}\n"
+            
+            if user_answer:
+                prompt += f"\n\nSTUDENT'S LATEST ANSWER: {user_answer}"
+            
+            if is_conclusion:
+                prompt += """
+
+IMPORTANT - TIME WARNING: The interview time is almost up (5 minutes remaining).
+You MUST now conclude the interview. Your response should:
+1. Acknowledge that time is running low
+2. Summarize the key points discussed during the interview
+3. Provide constructive feedback and advice to the candidate based on their responses
+4. Thank the candidate for their time
+5. Wrap up the session professionally
+
+This is the final response - make it meaningful and helpful for the candidate."""
+            
+            prompt += "\n\nResponse (JSON):"
+            
+            # Configure generation with reduced tokens for faster response
+            generation_config = genai.types.GenerationConfig(
+                temperature=instructions.get("temperature", 0.7),
+                max_output_tokens=instructions.get("max_tokens", 512),
+                candidate_count=1,
+            )
+            
+            # Generate streaming response
+            response = self.model.generate_content(
+                prompt,
+                generation_config=generation_config,
+                stream=True,
+            )
+            
+            # Yield chunks as they arrive
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
+            
+            logger.info("Streaming interview response completed")
+            
+        except Exception as e:
+            logger.error(f"Error in streaming interview: {e}", exc_info=True)
+            raise
+
     async def _generate_content(
         self,
         prompt: Any,
